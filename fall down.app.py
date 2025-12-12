@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 
 # --------------------------------------------------------------------------------
-# 1. [설정] 페이지 설정 (Wide Mode)
+# 1. [설정] 페이지 설정 (Wide Mode & 사이드바 확장)
 # --------------------------------------------------------------------------------
 st.set_page_config(page_title="SNUH BESTCARE 2.0", layout="wide", initial_sidebar_state="expanded")
 
@@ -59,10 +59,6 @@ st.markdown("""
     
     /* 사이드바 스타일 (침상 리스트 느낌) */
     section[data-testid="stSidebar"] { background-color: #252525; }
-    .sidebar-bed-item {
-        background-color: #3a3a3a; border-left: 4px solid #888; padding: 8px; margin-bottom: 5px; cursor: pointer;
-    }
-    .bed-active { border-left: 4px solid #00e5ff; background-color: #444; }
     
     /* 탭 스타일 */
     .stTabs [data-baseweb="tab-list"] { gap: 1px; background-color: #222; }
@@ -119,7 +115,7 @@ def show_risk_details(name, data):
 
 # (1) 사이드바: 환자 리스트 (침상 번호 스타일)
 with st.sidebar:
-    st.markdown("### 🏥 재원 환자 (Ward 72)")
+    st.markdown("### 🏥 재원 환자")
     selected_pt_name = st.radio(
         "환자 선택",
         list(patient_db.keys()),

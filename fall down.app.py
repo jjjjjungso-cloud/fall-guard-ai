@@ -1,3 +1,104 @@
+import streamlit as st
+import pandas as pd
+import time
+
+# --------------------------------------------------------------------------------
+# 1. [설정] 페이지 설정
+# --------------------------------------------------------------------------------
+st.set_page_config(page_title="SNUH Fall-Guard", layout="wide")
+
+# --------------------------------------------------------------------------------
+# 2. [CSS] EMR 버튼 스타일 (그라데이션 & 입체감 구현)
+# --------------------------------------------------------------------------------
+st.markdown("""
+<style>
+    /* 전체 배경: EMR 다크 네이비 */
+    .stApp { background-color: #1e2b3e; color: #e0e0e0; }
+    
+    /* 상단 헤더 */
+    .header-bar {
+        background-color: #151f2e; padding: 10px 20px; border-bottom: 2px solid #005eb8;
+        display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+    }
+
+    /* EMR 아이콘 버튼 그리드 레이아웃 */
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr); /* 한 줄에 4개 */
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    /* 기본 버튼 스타일 (회색/남색 그라데이션) */
+    .emr-button {
+        background: linear-gradient(to bottom, #3c4a60, #2b3648);
+        border: 1px solid #111;
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        color: #bbb;
+        height: 100px;
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+    }
+
+    /* [핵심] 낙상 버튼 (동적 스타일) */
+    .fall-button-high {
+        background: linear-gradient(to bottom, #ff6b6b, #c0392b); /* 빨강 그라데이션 */
+        color: white !important;
+        border: 2px solid #ffcccc;
+        animation: pulse 2s infinite; /* 깜빡이는 효과 */
+    }
+    .fall-button-mod {
+        background: linear-gradient(to bottom, #f1c40f, #f39c12); /* 노랑 그라데이션 */
+        color: black !important;
+    }
+    .fall-button-low {
+        background: linear-gradient(to bottom, #2ecc71, #27ae60); /* 초록 그라데이션 */
+        color: white !important;
+    }
+
+    /* 점수 텍스트 */
+    .score-text {
+        font-size: 28px;
+        font-weight: 900;
+        margin-top: 5px;
+        line-height: 1.0;
+    }
+    
+    .label-text { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+    
+    /* 깜빡임 애니메이션 (고위험군용) */
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(255, 0, 0, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --------------------------------------------------------------------------------
+# 3. [데이터] 환자 케이스
+# --------------------------------------------------------------------------------
+patient_db = {
+    '12345 김수면 (M/78)': {'score': 92, 'factors': ['수면제', '알부민(2.8)'], 'ward': '72병동', 'albumin': 2.8},
+    '67890 이보행 (F/65)': {'score': 72, 'factors': ['편마비'], 'ward': '응급실', 'albumin': 3.8},
+    '11223 박섬망 (M/82)': {'score': 45, 'factors': ['섬망'], 'ward': '72병동', 'albumin': 3.5},
+    '44556 최안전 (F/40)': {'score': 15, 'factors': [], 'ward': '응급실', 'albumin': 4.2}
+}
+
+# --------------------------------------------------------------------------------
+# 4. [헤더]
+# --------------------------------------------------------------------------------
+st.markdown("""
+<div class="header-bar">
+    <div style="font-size:18px; font-weight:bold; color:white;">
+        SNUH <span style="color:#aaa;">환자 대시보드</span>
+    </div>
+    <div style="font-size:14px; color:#ccc;">김분당 간호사</div>
+</div>
+""", unsafe_allow_html=True)
+
 # --------------------------------------------------------------------------------
 # 5. [메인 화면]
 # --------------------------------------------------------------------------------

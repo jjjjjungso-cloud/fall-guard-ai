@@ -4,172 +4,163 @@ import time
 from datetime import datetime
 
 # --------------------------------------------------------------------------------
-# 1. [설정] 페이지 및 스타일
+# 1. [설정] 페이지 설정 (Wide Mode)
 # --------------------------------------------------------------------------------
-st.set_page_config(page_title="SNUH Fall-Guard", layout="wide")
+st.set_page_config(page_title="SNUH BESTCARE 2.0", layout="wide", initial_sidebar_state="expanded")
 
+# --------------------------------------------------------------------------------
+# 2. [스타일] 실제 EMR(바탕화면.jpg) 느낌을 살리는 CSS
+# --------------------------------------------------------------------------------
 st.markdown("""
 <style>
-    /* 전체 배경: EMR 다크 네이비 */
-    .stApp { background-color: #1e2b3e; color: #e0e0e0; }
+    /* 폰트 및 기본 배경 (EMR 다크 그레이) */
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap');
     
-    /* 팝업창(모달) 스타일 조정 */
-    div[data-testid="stDialog"] {
-        background-color: #263859; color: white;
+    .stApp { 
+        background-color: #333333; /* 바탕화면.jpg의 배경색 */
+        color: #e0e0e0; 
+        font-family: 'Noto Sans KR', sans-serif; 
     }
     
-    /* 상단 헤더 */
-    .header-bar {
-        background-color: #151f2e; padding: 15px; border-bottom: 2px solid #005eb8;
-        display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+    /* [상단] 환자 정보 스트립 (분홍색 프로필 아이콘 재현) */
+    .patient-strip {
+        background: linear-gradient(to bottom, #4a5b70, #2e3b4e);
+        padding: 5px 10px; 
+        border-top: 3px solid #f39c12; /* 상단 오렌지 라인 */
+        display: flex; align-items: center; justify-content: space-between;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3); margin-bottom: 10px;
     }
-
-    /* 디지털 계기판 스타일 (00 | 00) */
-    .digital-monitor {
-        background-color: #000000; border: 2px solid #555; border-radius: 8px;
-        padding: 20px; display: flex; justify-content: space-around; align-items: center;
-        box-shadow: inset 0 0 30px rgba(0,0,0,0.9); margin-bottom: 10px;
+    .profile-box {
+        background-color: #d65db1; /* 프로필 사진 배경 (분홍색) */
+        width: 50px; height: 50px; border-radius: 4px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 30px; margin-right: 15px; box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
     }
-    .monitor-label { color: #aaa; font-size: 16px; font-weight: bold; margin-bottom: 5px; }
+    .pt-info-text { font-size: 14px; color: #fff; line-height: 1.4; }
+    .pt-name-large { font-size: 20px; font-weight: bold; color: #fff; text-shadow: 1px 1px 2px black; }
+    
+    /* [하단] 디지털 계기판 (검은색 박스) - 요청하신 위치 */
+    .digital-monitor-container {
+        margin-top: 20px; /* 위쪽 여백 */
+        background-color: #000000; 
+        border: 2px solid #555; border-radius: 8px;
+        padding: 15px; 
+        box-shadow: inset 0 0 30px rgba(0,0,0,0.9);
+    }
+    .monitor-row { display: flex; justify-content: space-around; align-items: center; }
     .digital-number {
         font-family: 'Consolas', monospace; font-size: 60px; font-weight: 900; line-height: 1.0;
-        text-shadow: 0 0 15px rgba(255,255,255,0.4);
+        text-shadow: 0 0 15px rgba(255,255,255,0.4); margin-top: 5px;
     }
-    .divider { width: 2px; height: 60px; background-color: #444; }
-
-    /* 상세 보기 버튼 스타일 */
-    .detail-btn-area { text-align: center; margin-top: 10px; }
+    .monitor-label { color: #888; font-size: 14px; font-weight: bold; letter-spacing: 1px; }
     
-    /* 폰트 설정 */
-    h1, h2, h3, h4, p, div, span, label { font-family: 'Malgun Gothic', sans-serif; }
+    /* 팝업 스타일 */
+    div[data-testid="stDialog"] { background-color: #2e3b4e; color: white; }
+    
+    /* 사이드바 스타일 (침상 리스트 느낌) */
+    section[data-testid="stSidebar"] { background-color: #252525; }
+    .sidebar-bed-item {
+        background-color: #3a3a3a; border-left: 4px solid #888; padding: 8px; margin-bottom: 5px; cursor: pointer;
+    }
+    .bed-active { border-left: 4px solid #00e5ff; background-color: #444; }
+    
+    /* 탭 스타일 */
+    .stTabs [data-baseweb="tab-list"] { gap: 1px; background-color: #222; }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #333; color: #aaa; border: 1px solid #444; padding: 5px 15px; font-size: 13px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #005eb8; /* 선택된 탭 파란색 */
+        color: white; font-weight: bold; border-top: 2px solid #00aaff;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------------
-# 2. [데이터] 환자 케이스
+# 3. [데이터] 환자 케이스 (진단명 등 추가)
 # --------------------------------------------------------------------------------
 patient_db = {
-    '12345 김수면 (M/78)': {'score': 92, 'braden': 12, 'factors': ['수면제 복용', '알부민(2.8)', '고령'], 'ward': '72병동', 'albumin': 2.8},
-    '67890 이보행 (F/65)': {'score': 72, 'braden': 14, 'factors': ['편마비', '보행 장애'], 'ward': '응급실', 'albumin': 3.8},
-    '11223 박섬망 (M/82)': {'score': 45, 'braden': 13, 'factors': ['섬망', '수액 라인'], 'ward': '72병동', 'albumin': 3.5},
-    '44556 최안전 (F/40)': {'score': 15, 'braden': 18, 'factors': [], 'ward': '응급실', 'albumin': 4.2}
+    '김수면': {'bed': '04-01', 'reg': '12345', 'info': 'M/78세', 'diag': 'Pneumonia (폐렴)', 'score': 92, 'braden': 12, 'factors': ['수면제', '알부민(2.8)'], 'albumin': 2.8},
+    '이보행': {'bed': '04-02', 'reg': '67890', 'info': 'F/65세', 'diag': 'Cerebral Infarction (뇌경색)', 'score': 72, 'braden': 14, 'factors': ['편마비', '보행장애'], 'albumin': 3.8},
+    '박섬망': {'bed': '05-01', 'reg': '11223', 'info': 'M/82세', 'diag': 'Femur Fracture (대퇴골절)', 'score': 45, 'braden': 13, 'factors': ['섬망', '수액라인'], 'albumin': 3.5},
+    '최안전': {'bed': '05-02', 'reg': '44556', 'info': 'F/40세', 'diag': 'Acute Appendicitis', 'score': 15, 'braden': 18, 'factors': [], 'albumin': 4.2}
 }
 
 # --------------------------------------------------------------------------------
-# 3. [기능] 팝업창(Dialog) 함수 구현 (그려주신 그림 UI)
+# 4. [기능] 팝업 함수 (그림과 동일한 UI)
 # --------------------------------------------------------------------------------
-@st.dialog("낙상/욕창 위험도 정밀 예측", width="large")
-def show_risk_details(pt_data):
-    # 1. 상단 문구 (그림의 "2025... 확률은 ()%입니다")
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    st.info(f"🕒 **{now_str}** 기준, 24시간 이내 낙상할 확률은 **{pt_data['score']}%** 입니다.")
+@st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
+def show_risk_details(name, data):
+    st.info(f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M')} 기준, {name} 님의 분석 결과입니다.")
     
-    st.write("") # 여백
-    
-    # 2. 좌우 배치 (위험요인 -> 화살표 -> 간호중재)
     c1, c2, c3 = st.columns([1, 0.2, 1])
-    
-    # [왼쪽 박스] 위험요인 List
     with c1:
-        st.markdown("##### 🚨 감지된 위험요인 List")
+        st.markdown("##### 🚨 위험요인 (Risk Factors)")
         with st.container(border=True):
-            if pt_data['factors']:
-                for f in pt_data['factors']:
-                    st.error(f"• {f}")
-            else:
-                st.write("특이 위험 요인 없음")
-                
-    # [중간] 화살표 (그림의 ➡ 모양)
+            if data['factors']:
+                for f in data['factors']: st.error(f"• {f}")
+            else: st.write("특이사항 없음")
     with c2:
-        st.markdown("<div style='display:flex; height:200px; align-items:center; justify-content:center; font-size:40px;'>➡</div>", unsafe_allow_html=True)
-
-    # [오른쪽 박스] 간호진술문(중재) List
+        st.markdown("<div style='font-size:40px; text-align:center; margin-top:50px;'>➡</div>", unsafe_allow_html=True)
     with c3:
-        st.markdown("##### ✅ 필수 간호 진술문")
+        st.markdown("##### ✅ 필수 간호 중재 (Intervention)")
         with st.container(border=True):
-            # 점수에 따른 동적 체크리스트
-            if pt_data['score'] >= 40:
-                st.checkbox("침상 난간(Side Rail) 올림 확인", value=True)
-                st.checkbox("낙상 고위험 표지판 부착")
-            if "수면제" in str(pt_data['factors']):
-                st.checkbox("💊 수면제 투여 후 30분 관찰")
-            if pt_data['albumin'] < 3.0:
-                st.checkbox("🥩 영양팀 협진 의뢰 (알부민 저하)")
-            if pt_data['braden'] <= 14:
-                st.checkbox("🧴 2시간마다 체위 변경 (욕창 위험)")
-                
-    st.write("") # 여백
-    
-    # 3. 하단 저장 버튼
+            if data['score'] >= 40: st.checkbox("침상 난간(Side Rail) 올림", value=True)
+            if "수면제" in str(data['factors']): st.checkbox("💊 수면제 투여 후 30분 관찰")
+            if data['albumin'] < 3.0: st.checkbox("🥩 영양팀 협진 의뢰")
+            if data['braden'] <= 14: st.checkbox("🧴 2시간마다 체위 변경")
+            
     if st.button("간호 수행 완료 및 닫기", type="primary", use_container_width=True):
-        st.balloons()
-        time.sleep(1)
         st.rerun()
 
 # --------------------------------------------------------------------------------
-# 4. [메인] 화면 구성
+# 5. [메인] 화면 구성
 # --------------------------------------------------------------------------------
 
-# 헤더
-st.markdown("""
-<div class="header-bar">
-    <div style="font-size:18px; font-weight:bold; color:white;">
-        SNUH <span style="color:#aaa;">환자 모니터링 대시보드</span>
+# (1) 사이드바: 환자 리스트 (침상 번호 스타일)
+with st.sidebar:
+    st.markdown("### 🏥 재원 환자 (Ward 72)")
+    selected_pt_name = st.radio(
+        "환자 선택",
+        list(patient_db.keys()),
+        format_func=lambda x: f"[{patient_db[x]['bed']}] {x}", # 침상번호 표시
+        label_visibility="collapsed"
+    )
+    st.markdown("---")
+    st.caption("※ 침상 번호를 클릭하여 환자를 변경하세요.")
+
+pt = patient_db[selected_pt_name]
+
+# (2) 상단 환자 정보 스트립 (EMR 스타일 재현)
+st.markdown(f"""
+<div class="patient-strip">
+    <div style="display:flex; align-items:center;">
+        <div class="profile-box">👤</div> <div>
+            <div class="pt-name-large">{selected_pt_name} <span style="font-size:14px; font-weight:normal;">({pt['reg']})</span></div>
+            <div class="pt-info-text">{pt['info']} | {pt['diag']}</div>
+            <div class="pt-info-text">주치의: 김닥터 | 입원일: 2025-12-01</div>
+        </div>
     </div>
-    <div style="font-size:14px; color:#ccc;">김분당 간호사</div>
+    <div>
+        <div style="text-align:right; font-size:12px; color:#ccc;">최근접속: {datetime.now().strftime('%Y.%m.%d')}</div>
+        <div style="background:#ff5252; color:white; padding:2px 8px; font-size:12px; border-radius:2px; text-align:center;">알러지: 없음</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-# 메인 레이아웃
-col_left, col_right = st.columns([1.2, 2.5])
+# (3) 메인 탭 (통합뷰 / 오더 / 간호기록)
+tab1, tab2, tab3 = st.tabs(["📌 통합상세뷰(Summary)", "💊 오더수행(Order)", "📝 간호기록(Note)"])
 
-with col_left:
-    st.markdown("##### 🔍 환자 선택")
-    selected_pt_key = st.selectbox("환자 리스트", list(patient_db.keys()), label_visibility="collapsed")
-    pt = patient_db[selected_pt_key]
+with tab1:
+    col_main, col_sub = st.columns([2, 1])
+    
+    # === [왼쪽] AI 분석 패널 ===
+    with col_main:
+        st.markdown(f"#### 🛡️ AI 낙상/욕창 실시간 감시")
+        st.info("💡 실시간 EMR 데이터를 분석하여 산출된 결과입니다. 하단 점수를 클릭하면 상세 내용을 볼 수 있습니다.")
 
-    st.markdown("##### 📋 실시간 감시 (Monitor)")
-    
-    # 점수 색상 로직
-    fall_color = "#ff4444" if pt['score'] >= 70 else ("#ffbb33" if pt['score'] >= 40 else "#00e5ff")
-    ulcer_color = "#ff4444" if pt['braden'] <= 12 else ("#ffbb33" if pt['braden'] <= 14 else "#00e5ff")
-
-    # [디지털 계기판 UI]
-    st.markdown(f"""
-    <div class="digital-monitor">
-        <div style="text-align:center; width:45%;">
-            <div class="monitor-label">낙상 위험도</div>
-            <div class="digital-number" style="color: {fall_color};">{pt['score']}</div>
-        </div>
-        <div class="divider"></div>
-        <div style="text-align:center; width:45%;">
-            <div class="monitor-label">욕창 위험도</div>
-            <div class="digital-number" style="color: {ulcer_color};">{pt['braden']}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # [핵심] 팝업 띄우는 버튼
-    st.markdown("---")
-    st.info("👇 점수를 클릭하여 상세 내용을 확인하세요")
-    if st.button("🔍 상세 분석 및 중재 기록 열기", type="secondary", use_container_width=True):
-        show_risk_details(pt) # 팝업 함수 호출!
-
-with col_right:
-    # 오른쪽은 일반적인 EMR 차트 화면 흉내
-    st.markdown(f"#### 📄 {selected_pt_key.split()[1]} 환자 EMR 차트")
-    
-    # 탭 메뉴
-    tab1, tab2, tab3 = st.tabs(["경과기록(Progress Note)", "투약(Order)", "검사결과(Lab)"])
-    
-    with tab1:
-        st.markdown(f"""
-        <div style="background-color:#263859; padding:15px; border-radius:5px; height:300px;">
-            <p style="color:#aaa;">[2025-12-12 14:00 간호기록]</p>
-            <p>V/S stable함. 점심 식사 전량 섭취함.<br>
-            보호자에게 낙상 주의 교육 실시하였으나, 환자 인지력 저하로 지속적인 관찰 필요함.</p>
-            <p style="color:#aaa;">[2025-12-12 10:00 투약]</p>
-            <p>처방된 수면제 PO 투여함.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        st.text_area("추가 기록 작성", placeholder="특이사항 입력...")
+        # 위험 요인 태그 (상단 배치)
+        st.write("**[감지된 주요 위험 요인]**")
+        if pt['factors']:
+            for f in pt['factors']:
+                st.markdown(f"<span style='background:#4a2c2c; color:#ffcccc

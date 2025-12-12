@@ -106,71 +106,123 @@ col_left, col_right = st.columns([1.2, 2.5])
 
 with col_left:
     st.markdown("##### 🔍 환자 선택")
+    
+    # [데이터 수정] 욕창 점수(braden) 추가 (없으면 기본값 18점)
+    # 기존 patient_db에 'braden' 키가 없어도 에러 안 나게 처리
+    for p in patient_db:
+        if 'braden' not in patient_db[p]:
+            patient_db[p]['braden'] = 18 # 기본값 (정상)
+
     selected_pt_key = st.selectbox("label", list(patient_db.keys()), label_visibility="collapsed")
     pt = patient_db[selected_pt_key]
 
-    st.markdown("##### 📋 환자 상태 (Patient Status)")
+    st.markdown("##### 📋 환자 상태 모니터링")
     
-    # 1. 낙상 버튼 스타일 결정
+    # 1. 낙상 점수 색상 로직 (디지털 숫자 색상)
     if pt['score'] >= 70:
-        btn_class = "fall-button-high"
-        icon = "🏃‍♂️💥" 
-        label = "낙상 고위험"
+        fall_color = "#ff4444" # 빨강 (고위험)
     elif pt['score'] >= 40:
-        btn_class = "fall-button-mod"
-        icon = "⚠️"
-        label = "낙상 주의"
+        fall_color = "#ffbb33" # 노랑 (중위험)
     else:
-        btn_class = "fall-button-low"
-        icon = "🛡️"
-        label = "낙상 안전"
+        fall_color = "#00e5ff" # 청록색 (안전 - 모니터 느낌)
         
-    # 2. HTML로 버튼 그리드 그리기 (주석을 제거하여 오류 방지)
+    # 2. 욕창 점수 로직 (브래든 스케일: 낮을수록 위험)
+    # 예시: 12점 이하면 고위험(빨강), 14점 이하면 중위험(노랑), 그 이상 안전(청록)
+    braden_score = pt.get('braden', 18) 
+    if braden_score <= 12:
+        ulcer_color = "#ff4444"
+    elif braden_score <= 14:
+        ulcer_color = "#ffbb33"
+    else:
+        ulcer_color = "#00e5ff"
+
+    # 3. [핵심] 디지털 계기판 스타일 (00 00 UI)
     st.markdown(f"""
-    <div class="dashboard-grid">
-        <div class="emr-button">
-            <div style="font-size:20px;">🩸</div>
-            <div class="label-text">혈액형</div>
-            <div style="font-size:14px;">A+</div>
+    <style>
+        /* 계기판 컨테이너 */
+        .digital-monitor {{
+            background-color: #000000; /* 완전 검정 (모니터 배경) */
+            border: 2px solid #333;
+            border-radius: 6px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-around; /* 양쪽 정렬 */
+            align-items: center;
+            margin-bottom: 20px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8); /* 안쪽 그림자 */
+        }}
+        
+        /* 개별 점수 박스 */
+        .score-box {{
+            text-align: center;
+            width: 45%;
+        }}
+        
+        /* 라벨 (낙상/욕창) */
+        .monitor-label {{
+            color: #aaaaaa;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-family: 'Malgun Gothic', sans-serif;
+        }}
+        
+        /* 디지털 숫자 */
+        .digital-number {{
+            font-family: 'Consolas', 'Courier New', monospace; /* 디지털 폰트 느낌 */
+            font-size: 50px;
+            font-weight: 900;
+            line-height: 1.0;
+            text-shadow: 0 0 10px rgba(255,255,255,0.3); /* 빛나는 효과 */
+        }}
+        
+        /* 구분선 */
+        .divider {{
+            width: 1px;
+            height: 50px;
+            background-color: #333;
+        }}
+    </style>
+
+    <div class="digital-monitor">
+        <div class="score-box">
+            <div class="monitor-label">낙상 위험도</div>
+            <div class="digital-number" style="color: {fall_color};">
+                {pt['score']}
+            </div>
         </div>
-        <div class="emr-button">
-            <div style="font-size:20px;">💊</div>
-            <div class="label-text">투약</div>
-            <div style="font-size:14px;">완료</div>
-        </div>
-        <div class="emr-button">
-            <div style="font-size:20px;">🦠</div>
-            <div class="label-text">감염</div>
-            <div style="font-size:14px;">-</div>
-        </div>
-        <div class="emr-button {btn_class}">
-            <div style="font-size:24px;">{icon}</div>
-            <div class="label-text">{label}</div>
-            <div class="score-text">{pt['score']}점</div>
-        </div>
-        <div class="emr-button">
-            <div class="label-text">욕창</div>
-            <div style="color:green;">저위험</div>
-        </div>
-        <div class="emr-button">
-            <div class="label-text">통증</div>
-            <div>3점</div>
-        </div>
-        <div class="emr-button">
-            <div class="label-text">식이</div>
-            <div>LD</div>
-        </div>
-        <div class="emr-button">
-            <div class="label-text">배설</div>
-            <div>정상</div>
+        
+        <div class="divider"></div>
+        
+        <div class="score-box">
+            <div class="monitor-label">욕창 위험도</div>
+            <div class="digital-number" style="color: {ulcer_color};">
+                {braden_score}
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    st.info("👆 위 대시보드에서 '낙상' 버튼의 색상과 점수가 실시간으로 변합니다.")
+    # 4. 나머지 버튼들 (작게 배치)
+    st.markdown("""
+    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px;">
+        <div style="background:#2b3648; padding:10px; border-radius:4px; text-align:center; font-size:12px; color:#ccc;">
+            <div style="font-weight:bold; color:white;">혈액형</div>A+
+        </div>
+        <div style="background:#2b3648; padding:10px; border-radius:4px; text-align:center; font-size:12px; color:#ccc;">
+            <div style="font-weight:bold; color:white;">감염</div>-
+        </div>
+        <div style="background:#2b3648; padding:10px; border-radius:4px; text-align:center; font-size:12px; color:#ccc;">
+            <div style="font-weight:bold; color:white;">식이</div>LD
+        </div>
+        <div style="background:#2b3648; padding:10px; border-radius:4px; text-align:center; font-size:12px; color:#ccc;">
+            <div style="font-weight:bold; color:white;">격리</div>-
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col_right:
-    # (오른쪽 패널 코드는 기존과 동일하므로 그대로 두시면 됩니다)
+    # (오른쪽 패널 코드는 기존과 동일하므로 그대로 유지)
     st.markdown(f"#### ✅ {selected_pt_key.split()[1]} 환자 간호 중재")
     
     with st.container(border=True):

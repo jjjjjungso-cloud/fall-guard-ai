@@ -163,4 +163,58 @@ with tab1:
         st.write("**[감지된 주요 위험 요인]**")
         if pt['factors']:
             for f in pt['factors']:
-                st.markdown(f"<span style='background:#4a2c2c; color:#ffcccc
+                st.markdown(f"<span style='background:#4a2c2c; color:#ffcccc; padding:4px 8px; border-radius:4px; margin-right:5px; font-size:14px;'>🚨 {f}</span>", unsafe_allow_html=True)
+        else:
+            st.markdown("<span style='color:#00e5ff;'>✔ 특이 위험 요인 없음</span>", unsafe_allow_html=True)
+
+        # --------------------------------------------------------------------
+        # [핵심 요청사항] 디지털 계기판을 "제일 하단"에 배치
+        # --------------------------------------------------------------------
+        
+        # 색상 로직
+        f_color = "#ff4444" if pt['score'] >= 70 else ("#ffbb33" if pt['score'] >= 40 else "#00e5ff")
+        b_color = "#ff4444" if pt['braden'] <= 12 else ("#ffbb33" if pt['braden'] <= 14 else "#00e5ff")
+        
+        st.markdown(f"""
+        <div class="digital-monitor-container">
+            <div class="monitor-row">
+                <div style="text-align:center; width:45%; border-right:1px solid #333;">
+                    <div class="monitor-label">FALL RISK SCORE</div>
+                    <div class="digital-number" style="color: {f_color};">{pt['score']}</div>
+                    <div style="color:{f_color}; font-size:12px; margin-top:5px;">
+                        {'🔴 고위험군' if pt['score']>=70 else ('🟡 중위험군' if pt['score']>=40 else '🟢 저위험군')}
+                    </div>
+                </div>
+                
+                <div style="text-align:center; width:45%;">
+                    <div class="monitor-label">BRADEN SCALE</div>
+                    <div class="digital-number" style="color: {b_color};">{pt['braden']}</div>
+                    <div style="color:{b_color}; font-size:12px; margin-top:5px;">
+                        {'🔴 고위험' if pt['braden']<=12 else ('🟡 중위험' if pt['braden']<=14 else '🟢 저위험')}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 팝업 버튼 (계기판 바로 밑에)
+        if st.button("🔍 상세 분석 및 중재 입력 (Pop-up View)", type="secondary", use_container_width=True):
+            show_risk_details(selected_pt_name, pt)
+
+    # === [오른쪽] 일반 정보 (장식용) ===
+    with col_sub:
+        st.markdown("##### 📈 Vital Signs")
+        st.dataframe(pd.DataFrame({
+            'Time': ['06:00', '10:00', '14:00'],
+            'BP': ['120/80', '125/82', '118/78'],
+            'BT': ['36.5', '36.6', '36.5']
+        }), hide_index=True)
+        
+        st.markdown("##### 🧪 Lab Result")
+        st.caption("Albumin: " + str(pt['albumin']) + " (▼)" if pt['albumin'] < 3.0 else str(pt['albumin']))
+        st.caption("Hb: 13.5")
+
+with tab2:
+    st.write("오더 수행 화면입니다.")
+with tab3:
+    st.write("간호 기록 화면입니다.")

@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. 스타일 (CSS)
+# 2. 스타일 (CSS) - 알람, 디지털 계기판, EMR 테마
 # --------------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -31,12 +31,13 @@ st.markdown("""
     }
     .header-info-text { font-size: 1.1em; color: #eceff1; margin-right: 15px; }
 
-    /* 디지털 계기판 */
+    /* 좌측 디지털 계기판 */
     .digital-monitor-container {
         background-color: #000000; border: 2px solid #455a64; border-radius: 8px;
         padding: 15px; margin-top: 15px; margin-bottom: 5px;
         box-shadow: inset 0 0 20px rgba(0,0,0,0.9); transition: border 0.3s;
     }
+    /* 알람 점멸 효과 */
     @keyframes blink { 50% { border-color: #ff5252; box-shadow: 0 0 15px #ff5252; } }
     .alarm-active { animation: blink 1s infinite; border: 2px solid #ff5252 !important; }
 
@@ -46,10 +47,23 @@ st.markdown("""
     }
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
 
-    /* 시뮬레이션 패널 (우측 이동) */
-    .sim-box {
-        background-color: #2c3e50; padding: 15px; border-radius: 8px; border: 1px solid #455a64; margin-bottom: 15px;
+    /* [NEW] 우측 하단 커스텀 알람 팝업 */
+    .custom-alert-box {
+        position: fixed; bottom: 30px; right: 30px; width: 400px;
+        background-color: #263238; border-left: 8px solid #ff5252;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
+        padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
     }
+    @keyframes slideIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
+    
+    .alert-title { color: #ff5252; font-weight: bold; font-size: 1.3em; margin-bottom: 10px; display: flex; align-items: center; }
+    .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.4; }
+    .alert-factors { background-color: #3e2723; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
+    .alert-btn {
+        background-color: #d32f2f; color: white; text-align: center; padding: 10px; 
+        border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    }
+    .alert-btn:hover { background-color: #b71c1c; }
 
     /* 기타 UI */
     .note-entry { background-color: #2c3e50; padding: 15px; border-radius: 5px; border-left: 4px solid #0288d1; margin-bottom: 10px; }
@@ -118,7 +132,7 @@ def calculate_risk_score(pt_static, input_vals):
         except:
             base_score = 10 
 
-    # 2. 보정 로직
+    # 2. 보정 로직 (Calibration)
     calibration_score = 0
     if input_vals['albumin'] < 3.0: calibration_score += 30
     if input_vals['meds']: calibration_score += 30
@@ -136,6 +150,12 @@ def calculate_risk_score(pt_static, input_vals):
 if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
+if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
+
+# 알람 확인 처리 (URL 쿼리 파라미터 감지)
+if "confirm_alarm" in st.query_params:
+    st.session_state.alarm_confirmed = True
+    st.query_params.clear() # 파라미터 초기화 (재접속 시 알람 다시 뜨지 않게)
 
 PATIENTS_BASE = [
     {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
@@ -145,7 +165,7 @@ PATIENTS_BASE = [
 ]
 
 # --------------------------------------------------------------------------------
-# 6. 팝업창
+# 6. 팝업창 (상세 분석)
 # --------------------------------------------------------------------------------
 @st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
 def show_risk_details(name, factors, current_score, input_vals):
@@ -189,80 +209,94 @@ def show_risk_details(name, factors, current_score, input_vals):
 
     with tab2:
         st.markdown("##### 🔍 환자 맞춤형 위험 요인 (Top 10)")
+        st.caption("현재 환자 상태에서 **위험 구간에 해당되는 항목은 붉은색**으로 표시됩니다.")
         if res and res['importance'] is not None:
             df_imp = res['importance'].copy().sort_values('importance', ascending=True).tail(10)
             
             colors = []
+            texts = []
             for feature in df_imp['feature']:
-                color = "#e0e0e0"
-                if feature == "나이" and input_vals['age'] >= 65: color = "#ff5252"
-                elif feature == "albumin" and input_vals['albumin'] < 3.0: color = "#ff5252"
-                elif feature == "SBP" and (input_vals['sbp'] < 100 or input_vals['sbp'] > 160): color = "#ff5252"
-                elif feature == "PR" and input_vals['pr'] > 100: color = "#ff5252"
+                color = "#e0e0e0" # 기본 회색
+                val_text = "-"
+                
+                # 시뮬레이션 값과 비교하여 위험 시 빨간색
+                if feature == "나이":
+                    val = input_vals['age']
+                    if val >= 65: color = "#ff5252"; val_text = f"{val}세 (고령)"
+                    else: val_text = f"{val}세"
+                elif feature == "albumin":
+                    val = input_vals['albumin']
+                    if val < 3.0: color = "#ff5252"; val_text = f"{val} (저하)"
+                    else: val_text = f"{val}"
+                elif feature == "SBP":
+                    val = input_vals['sbp']
+                    if val < 100 or val > 160: color = "#ff5252"; val_text = f"{val} (비정상)"
+                    else: val_text = f"{val}"
+                elif feature == "PR":
+                    val = input_vals['pr']
+                    if val > 100: color = "#ff5252"; val_text = f"{val} (빈맥)"
+                    else: val_text = f"{val}"
+                
                 colors.append(color)
+                texts.append(val_text)
             
             df_imp['color'] = colors
+            df_imp['text'] = texts
             
             chart = alt.Chart(df_imp).mark_bar().encode(
                 x=alt.X('importance', title='기여도'),
                 y=alt.Y('feature', sort='-x', title='변수명'),
-                color=alt.Color('color', scale=None)
+                color=alt.Color('color', scale=None),
+                tooltip=['feature', 'importance']
             ).properties(height=350)
-            st.altair_chart(chart, use_container_width=True)
+            
+            text_layer = chart.mark_text(align='left', dx=3).encode(text='text')
+            st.altair_chart(chart + text_layer, use_container_width=True)
         else:
             st.info("중요도 데이터가 없습니다.")
 
 # --------------------------------------------------------------------------------
-# 7. 메인 레이아웃 구성 (좌/우 분할)
+# 7. 메인 레이아웃 구성
 # --------------------------------------------------------------------------------
 col_sidebar, col_main = st.columns([2, 8])
 curr_pt_base = PATIENTS_BASE[st.session_state.current_pt_idx]
 
 # ==============================================================================
-# [좌측 패널] 환자 리스트 + AI 결과 (입력창 제거)
+# [좌측 패널] 환자 리스트 + 결과 계기판
 # ==============================================================================
 with col_sidebar:
     st.selectbox("근무 DUTY", ["Day", "Evening", "Night"])
     st.divider()
 
-    # 1. 환자 선택
     st.markdown("### 🏥 재원 환자")
     idx = st.radio("환자 리스트", range(len(PATIENTS_BASE)), format_func=lambda i: f"[{PATIENTS_BASE[i]['bed']}] {PATIENTS_BASE[i]['name']}", label_visibility="collapsed")
-    st.session_state.current_pt_idx = idx
+    if idx != st.session_state.current_pt_idx:
+        st.session_state.current_pt_idx = idx
+        st.session_state.alarm_confirmed = False # 환자 바뀌면 알람 리셋
+        st.rerun()
     curr_pt_base = PATIENTS_BASE[idx]
     
     st.markdown("---")
     
-    # 2. 결과 표시 영역 (점수 + 버튼)
-    # (여기서 점수는 아래 메인 패널에서 계산된 값을 session state 등을 통해 가져오거나, 
-    #  입력값이 아직 없으므로 기본값/직전값으로 표출해야 합니다.
-    #  하지만 Streamlit 특성상 위에서 아래로 흐르므로, 
-    #  입력값을 우측에서 받고 -> 점수를 계산해서 -> 좌측에 뿌리려면 
-    #  st.empty()를 쓰거나 순서를 잘 잡아야 합니다.)
-    
-    # 간단한 해결책: 
-    # 우측에서 입력받은 값을 st.session_state에 저장하고, 
-    # 다음 렌더링 때 좌측에서 보여주는 방식이 가장 깔끔합니다.
-    # 여기서는 "초기화된 기본값"으로 먼저 계산하고, 우측 입력값은 다음 인터랙션부터 반영됩니다.
-    
+    # 세션에 입력값이 없으면 초기화
     if 'sim_input' not in st.session_state:
         st.session_state.sim_input = {
             'age': curr_pt_base['age'], 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
             'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
         }
     
-    # 세션에 저장된 값으로 점수 계산 (실시간 반영)
+    # 점수 계산
     fall_score = calculate_risk_score(curr_pt_base, st.session_state.sim_input)
     sore_score = 15
     
-    # 디지털 계기판 + 알람
+    # 계기판 색상
     f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
     s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
     
+    # 알람 상태 체크 (점수 60 이상 AND 확인 안 함)
     alarm_class = ""
-    if fall_score >= 60:
+    if fall_score >= 60 and not st.session_state.alarm_confirmed:
         alarm_class = "alarm-active"
-        st.toast(f"🚨 [경고] {curr_pt_base['name']}님 낙상 고위험 감지! ({fall_score}점)", icon="🚨")
 
     st.markdown(f"""
     <div class="digital-monitor-container {alarm_class}">
@@ -271,6 +305,7 @@ with col_sidebar:
                 <div class="monitor-label">FALL RISK</div>
                 <div class="digital-number" style="color: {f_color};">{fall_score}</div>
             </div>
+            <div style="width: 2px; height: 50px; background-color: #444;"></div>
             <div style="text-align:center; width:45%;">
                 <div class="monitor-label">SORE RISK</div>
                 <div class="digital-number" style="color: {s_color};">{sore_score}</div>
@@ -279,12 +314,12 @@ with col_sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # 위험 요인 텍스트 생성
+    # 위험 요인 텍스트 (알람 팝업 및 상세 버튼용)
     detected_factors = []
     inp = st.session_state.sim_input
     if inp['age'] >= 65: detected_factors.append("고령")
     if inp['albumin'] < 3.0: detected_factors.append("알부민 저하")
-    if inp['meds']: detected_factors.append("수면제 복용")
+    if inp['meds']: detected_factors.append("고위험 약물")
     if inp['sbp'] < 100: detected_factors.append("저혈압")
     if inp['pr'] > 100: detected_factors.append("빈맥")
     
@@ -292,10 +327,9 @@ with col_sidebar:
         show_risk_details(curr_pt_base['name'], detected_factors, fall_score, inp)
 
 # ==============================================================================
-# [우측 메인 패널] 헤더 + 탭 (입력창 포함)
+# [우측 메인 패널] 시뮬레이션 및 데이터
 # ==============================================================================
 with col_main:
-    # 1. 헤더
     st.markdown(f"""
     <div class="header-container">
         <div style="display:flex; align-items:center; justify-content:space-between;">
@@ -312,49 +346,35 @@ with col_main:
 
     tab1, tab2, tab3 = st.tabs(["🛡️ 통합뷰 (AI Simulation)", "💊 오더", "📝 간호기록(Auto-Note)"])
 
-    # [Tab 1] 여기가 핵심! 입력창을 여기로 이동
     with tab1:
-        c1, c2 = st.columns([1.2, 1]) # 비율 조정
+        c1, c2 = st.columns([1.2, 1])
         
         # [왼쪽] 실시간 데이터 입력 (Simulation)
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
-                # 환자 변경 시 기본값 리셋 방지를 위해 key 사용 등 고려할 수 있으나,
-                # 시연용이므로 간단하게 session_state 값 업데이트 방식으로 구현
-                
-                # 값 입력 (Session State에 즉시 반영)
-                new_age = curr_pt_base['age'] # 나이는 고정
-                
-                # V/S 입력 (2열)
+                new_age = curr_pt_base['age']
                 r1, r2 = st.columns(2)
                 new_sbp = r1.number_input("SBP (수축기)", value=st.session_state.sim_input['sbp'], step=10, key="new_sbp")
                 new_dbp = r2.number_input("DBP (이완기)", value=st.session_state.sim_input['dbp'], step=10, key="new_dbp")
-                
                 r3, r4 = st.columns(2)
                 new_pr = r3.number_input("PR (맥박)", value=st.session_state.sim_input['pr'], step=5, key="new_pr")
                 new_rr = r4.number_input("RR (호흡)", value=st.session_state.sim_input['rr'], step=2, key="new_rr")
-                
                 new_bt = st.number_input("BT (체온)", value=st.session_state.sim_input['bt'], step=0.1, format="%.1f", key="new_bt")
                 
-                # Lab 입력
                 new_alb = st.slider("Albumin (영양)", 1.0, 5.5, st.session_state.sim_input['albumin'], 0.1, key="new_alb")
-                
-                # 기타
                 new_mental = st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"], index=0, key="new_mental")
                 new_meds = st.checkbox("💊 고위험 약물(수면제 등) 복용", value=st.session_state.sim_input['meds'], key="new_meds")
                 
-                # 변경된 값을 Session State에 업데이트
+                # 입력값 업데이트
                 st.session_state.sim_input.update({
                     'age': new_age, 'sbp': new_sbp, 'dbp': new_dbp, 'pr': new_pr, 'rr': new_rr,
                     'bt': new_bt, 'albumin': new_alb, 'mental': new_mental, 'meds': new_meds
                 })
 
-        # [오른쪽] V/S Summary 및 위험 요인
+        # [오른쪽] V/S Summary (연동됨)
         with c2:
             st.markdown("##### 📊 환자 상태 요약")
-            
-            # V/S 카드 UI
             st.markdown(f"""
             <div style="background-color:#263238; padding:15px; border-radius:8px; margin-bottom:15px;">
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; text-align:center;">
@@ -386,6 +406,26 @@ with col_main:
             """, unsafe_allow_html=True)
         st.text_area("추가 기록", height=100)
         st.button("저장")
+
+# [NEW] 우측 하단 커스텀 알람 팝업 (HTML Rendering)
+if fall_score >= 60 and not st.session_state.alarm_confirmed:
+    factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
+    
+    st.markdown(f"""
+    <div class="custom-alert-box">
+        <div class="alert-title">🚨 낙상 고위험 감지! ({fall_score}점)</div>
+        <div class="alert-content">
+            환자의 상태 변화로 인해 낙상 위험도가 급격히 상승했습니다. 즉시 확인이 필요합니다.
+        </div>
+        <div class="alert-factors">
+            <b>[감지된 주요 위험 요인]</b><br>
+            • {factors_str}
+        </div>
+        <a href="?confirm_alarm=true" target="_self" style="text-decoration:none;">
+            <div class="alert-btn">확인 (Confirm)</div>
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.markdown("---")
 legends = [("수술전","#e57373"), ("수술중","#ba68c8"), ("검사후","#7986cb"), ("퇴원","#81c784"), ("신규오더","#ffb74d")]

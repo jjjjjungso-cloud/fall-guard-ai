@@ -49,7 +49,7 @@ st.markdown("""
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
     .divider-line { width: 1px; height: 50px; background-color: #444; }
 
-    /* 알람 박스 (단순화) */
+    /* 알람 박스 */
     .custom-alert-box {
         position: fixed; bottom: 30px; right: 30px; width: 350px;
         background-color: #263238; border-left: 8px solid #ff5252;
@@ -103,15 +103,18 @@ def load_resources():
 res = load_resources()
 
 # --------------------------------------------------------------------------------
-# 4. 예측 및 보정 함수
+# 4. 예측 및 보정 함수 (수정됨!)
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static, input_vals):
+    # 1. AI 모델 예측
     base_score = 0
     if res and 'model' in res:
         model = res['model']
         feature_cols = res['features']
         
         input_data = {col: 0 for col in feature_cols}
+        
+        # 데이터 매핑
         input_data['나이'] = pt_static['age']
         input_data['성별'] = 1 if pt_static['gender'] == 'M' else 0
         input_data['SBP'] = input_vals['sbp']
@@ -134,10 +137,22 @@ def calculate_risk_score(pt_static, input_vals):
         except:
             base_score = 10 
 
+    # 2. [수정] 보정 로직 (가산점)
     calibration_score = 0
-    if input_vals['albumin'] < 3.0: calibration_score += 30
-    if input_vals['meds']: calibration_score += 30
-    if pt_static['age'] >= 70: calibration_score += 10
+    
+    # (1) 알부민 3.0 미만이면 +30점
+    if input_vals['albumin'] < 3.0:
+        calibration_score += 30
+        
+    # (2) 고위험 약물 복용 시(True) +30점
+    if input_vals['meds'] == True:
+        calibration_score += 30
+        
+    # (3) 나이 70세 이상 시 +10점
+    if pt_static['age'] >= 70:
+        calibration_score += 10
+        
+    # (4) 활력징후 이상
     if input_vals['sbp'] < 90 or input_vals['sbp'] > 180: calibration_score += 15
     if input_vals['pr'] > 100: calibration_score += 10
     if input_vals['bt'] > 37.5: calibration_score += 5
@@ -215,8 +230,9 @@ def show_risk_details(name, factors, current_score, input_vals):
             colors = []
             for feature in df_imp['feature']:
                 color = "#e0e0e0"
-                if feature == "나이" and input_vals['age'] >= 65: color = "#ff5252"
-                elif feature == "albumin" and input_vals['albumin'] < 3.0: color = "#ff5252"
+                # 알부민 3.0 미만 시 빨간색 강조
+                if feature == "albumin" and input_vals['albumin'] < 3.0: color = "#ff5252"
+                elif feature == "나이" and input_vals['age'] >= 65: color = "#ff5252"
                 elif feature == "SBP" and (input_vals['sbp'] < 100 or input_vals['sbp'] > 160): color = "#ff5252"
                 elif feature == "PR" and input_vals['pr'] > 100: color = "#ff5252"
                 colors.append(color)
@@ -244,154 +260,4 @@ with col_sidebar:
 
     st.markdown("### 🏥 재원 환자")
     idx = st.radio("환자 리스트", range(len(PATIENTS_BASE)), format_func=lambda i: f"[{PATIENTS_BASE[i]['bed']}] {PATIENTS_BASE[i]['name']}", label_visibility="collapsed")
-    if idx != st.session_state.current_pt_idx:
-        st.session_state.current_pt_idx = idx
-        st.session_state.alarm_confirmed = False 
-        st.rerun()
-    curr_pt_base = PATIENTS_BASE[idx]
-    
-    st.markdown("---")
-    
-    if 'sim_input' not in st.session_state:
-        st.session_state.sim_input = {
-            'age': curr_pt_base['age'], 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
-            'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
-        }
-    
-    fall_score = calculate_risk_score(curr_pt_base, st.session_state.sim_input)
-    sore_score = 15
-    
-    f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
-    s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
-    
-    alarm_class = ""
-    if fall_score >= 60 and not st.session_state.alarm_confirmed:
-        alarm_class = "alarm-active"
-
-    # 가로형 디지털 계기판
-    st.markdown(f"""
-    <div class="digital-monitor-container {alarm_class}">
-        <div class="score-box">
-            <div class="monitor-label">FALL RISK</div>
-            <div class="digital-number" style="color: {f_color};">{fall_score}</div>
-        </div>
-        <div class="divider-line"></div>
-        <div class="score-box">
-            <div class="monitor-label">SORE RISK</div>
-            <div class="digital-number" style="color: {s_color};">{sore_score}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    detected_factors = []
-    inp = st.session_state.sim_input
-    if inp['age'] >= 65: detected_factors.append("고령")
-    if inp['albumin'] < 3.0: detected_factors.append("알부민 저하")
-    if inp['meds']: detected_factors.append("고위험 약물")
-    if inp['sbp'] < 100: detected_factors.append("저혈압")
-    if inp['pr'] > 100: detected_factors.append("빈맥")
-    
-    if st.button("🔍 상세 분석 및 중재 기록 열기", type="primary", use_container_width=True):
-        show_risk_details(curr_pt_base['name'], detected_factors, fall_score, inp)
-
-# [우측 메인 패널]
-with col_main:
-    # [수정] 나이 표출 추가 (헤더)
-    st.markdown(f"""
-    <div class="header-container">
-        <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div style="display:flex; align-items:center;">
-                <span style="font-size:1.5em; font-weight:bold; color:white; margin-right:20px;">🏥 SNUH</span>
-                <span class="header-info-text"><span class="header-label">환자명:</span> <b>{curr_pt_base['name']}</b> ({curr_pt_base['gender']}/{curr_pt_base['age']}세)</span>
-                <span class="header-info-text"><span class="header-label">ID:</span> {curr_pt_base['id']}</span>
-                <span class="header-info-text"><span class="header-label">진단명:</span> <span style="color:#4fc3f7;">{curr_pt_base['diag']}</span></span>
-            </div>
-            <div style="color:#b0bec5; font-size:0.9em;">김분당 간호사 | {datetime.datetime.now().strftime('%Y-%m-%d')}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab1, tab2, tab3 = st.tabs(["🛡️ 통합뷰 (AI Simulation)", "💊 오더", "📝 간호기록(Auto-Note)"])
-
-    with tab1:
-        c1, c2 = st.columns([1.2, 1])
-        
-        with c1:
-            st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
-            with st.container(border=True):
-                new_age = curr_pt_base['age']
-                r1, r2 = st.columns(2)
-                new_sbp = r1.number_input("SBP (수축기)", value=st.session_state.sim_input['sbp'], step=10, key="new_sbp")
-                new_dbp = r2.number_input("DBP (이완기)", value=st.session_state.sim_input['dbp'], step=10, key="new_dbp")
-                r3, r4 = st.columns(2)
-                new_pr = r3.number_input("PR (맥박)", value=st.session_state.sim_input['pr'], step=5, key="new_pr")
-                new_rr = r4.number_input("RR (호흡)", value=st.session_state.sim_input['rr'], step=2, key="new_rr")
-                new_bt = st.number_input("BT (체온)", value=st.session_state.sim_input['bt'], step=0.1, format="%.1f", key="new_bt")
-                
-                new_alb = st.slider("Albumin (영양)", 1.0, 5.5, st.session_state.sim_input['albumin'], 0.1, key="new_alb")
-                new_mental = st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"], index=0, key="new_mental")
-                new_meds = st.checkbox("💊 고위험 약물(수면제 등) 복용", value=st.session_state.sim_input['meds'], key="new_meds")
-                
-                st.session_state.sim_input.update({
-                    'age': new_age, 'sbp': new_sbp, 'dbp': new_dbp, 'pr': new_pr, 'rr': new_rr,
-                    'bt': new_bt, 'albumin': new_alb, 'mental': new_mental, 'meds': new_meds
-                })
-
-        with c2:
-            st.markdown("##### 📊 환자 상태 요약")
-            st.markdown(f"""
-            <div style="background-color:#263238; padding:15px; border-radius:8px; margin-bottom:15px;">
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; text-align:center;">
-                    <div><div style="color:#aaa; font-size:12px;">BP</div><div style="font-weight:bold; font-size:18px;">{new_sbp}/{new_dbp}</div></div>
-                    <div><div style="color:#aaa; font-size:12px;">PR</div><div style="font-weight:bold; font-size:18px;">{new_pr}</div></div>
-                    <div><div style="color:#aaa; font-size:12px;">RR</div><div style="font-weight:bold; font-size:18px;">{new_rr}</div></div>
-                    <div><div style="color:#aaa; font-size:12px;">BT</div><div style="font-weight:bold; font-size:18px;">{new_bt}</div></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown(f"**[감지된 위험 요인]**")
-            if detected_factors:
-                for f in detected_factors:
-                    st.markdown(f"<span class='risk-tag'>{f}</span>", unsafe_allow_html=True)
-            else:
-                st.info("특이 사항 없음")
-
-    with tab2: st.write("오더 화면입니다.")
-
-    with tab3:
-        st.markdown("##### 📋 간호진술문 (Nursing Note)")
-        for note in st.session_state.nursing_notes:
-            st.markdown(f"""
-            <div class="note-entry">
-                <div class="note-time">📅 {note['time']} | 작성자: {note['writer']}</div>
-                <div>{note['content']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.text_area("추가 기록", height=100)
-        st.button("저장")
-
-# [NEW] 알람 (단순 확인 버튼 하나)
-if fall_score >= 60 and not st.session_state.alarm_confirmed:
-    factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
-    
-    st.markdown(f"""
-    <div class="custom-alert-box">
-        <div class="alert-title">🚨 낙상 고위험 감지! ({fall_score}점)</div>
-        <div class="alert-content">
-            환자의 상태 변화로 인해 낙상 위험도가 급격히 상승했습니다. 즉시 확인이 필요합니다.
-        </div>
-        <div class="alert-factors">
-            <b>[감지된 주요 위험 요인]</b><br>
-            • {factors_str}
-        </div>
-        <a href="?confirm_alarm=true" target="_self" class="btn-confirm">
-            확인 (Confirm)
-        </a>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.markdown("---")
-legends = [("수술전","#e57373"), ("수술중","#ba68c8"), ("검사후","#7986cb"), ("퇴원","#81c784"), ("신규오더","#ffb74d")]
-html = '<div style="display:flex; gap:10px;">' + "".join([f'<span class="legend-item" style="background:{c}">{l}</span>' for l,c in legends]) + '</div>'
-st.markdown(html, unsafe_allow_html=True)
+    if idx != st.session_state

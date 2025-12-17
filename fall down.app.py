@@ -31,25 +31,40 @@ st.markdown("""
     }
     .header-info-text { font-size: 1.1em; color: #eceff1; margin-right: 15px; }
 
-    /* 디지털 계기판 (가로 배치) */
+    /* 디지털 계기판 (가로 배치 강제 적용) */
     .digital-monitor-container {
         background-color: #000000; border: 2px solid #455a64; border-radius: 8px;
         padding: 15px; margin-top: 15px; margin-bottom: 5px;
         box-shadow: inset 0 0 20px rgba(0,0,0,0.9); transition: border 0.3s;
-        display: flex !important; flex-direction: row !important;
-        justify-content: space-around !important; align-items: center !important;
+        
+        /* Flexbox를 사용하여 가로 정렬 */
+        display: flex !important; 
+        flex-direction: row !important;
+        justify-content: space-around !important; 
+        align-items: center !important;
     }
+    .score-box { 
+        text-align: center; 
+        width: 45%; 
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .divider-line { 
+        width: 1px; height: 50px; background-color: #444; 
+    }
+
+    /* 알람 점멸 애니메이션 */
     @keyframes blink { 50% { border-color: #ff5252; box-shadow: 0 0 15px #ff5252; } }
     .alarm-active { animation: blink 1s infinite; border: 2px solid #ff5252 !important; }
 
-    .score-box { text-align: center; width: 45%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .digital-number { font-family: 'Consolas', monospace; font-size: 36px; font-weight: 900; line-height: 1.0; text-shadow: 0 0 10px rgba(255,255,255,0.4); margin-top: 5px; }
+    .digital-number {
+        font-family: 'Consolas', monospace; font-size: 36px; font-weight: 900; line-height: 1.0;
+        text-shadow: 0 0 10px rgba(255,255,255,0.4); margin-top: 5px;
+    }
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
-    .divider-line { width: 1px; height: 50px; background-color: #444; }
 
-    /* 알람 박스 */
+    /* 알람 박스 (버튼 1개) */
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 350px;
+        position: fixed; bottom: 30px; right: 30px; width: 400px;
         background-color: #263238; border-left: 8px solid #ff5252;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
         padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
@@ -60,6 +75,7 @@ st.markdown("""
     .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.4; }
     .alert-factors { background-color: #3e2723; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
     
+    /* 버튼 스타일 */
     .btn-confirm {
         display: block; background-color: #d32f2f; color: white !important; text-align: center; padding: 10px; 
         border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none !important;
@@ -68,6 +84,7 @@ st.markdown("""
 
     /* 기타 UI */
     .note-entry { background-color: #2c3e50; padding: 15px; border-radius: 5px; border-left: 4px solid #0288d1; margin-bottom: 10px; }
+    .note-time { color: #81d4fa; font-weight: bold; margin-bottom: 5px; font-size: 0.9em; }
     .risk-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin: 2px; border: 1px solid #ff5252; color: #ff867c; }
     .legend-item { display: inline-block; padding: 2px 8px; margin-right: 5px; border-radius: 3px; font-size: 0.75em; font-weight: bold; color: white; text-align: center; }
     
@@ -110,20 +127,20 @@ PATIENTS_BASE = [
 ]
 
 # --------------------------------------------------------------------------------
-# 5. 상태 초기화 및 관리 (여기가 수정됨!)
+# 5. 상태 초기화 (데이터 유지의 핵심)
 # --------------------------------------------------------------------------------
 if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
 
-# 알람 확인 (URL 쿼리 처리)
+# 알람 확인 (단순 닫기)
 if "confirm_alarm" in st.query_params:
     st.session_state.alarm_confirmed = True
     st.query_params.clear()
 
-# [핵심] 시뮬레이션 변수들을 Session State에 직접 초기화 (딕셔너리 아님, 개별 키 사용)
-# 이렇게 하면 위젯과 1:1로 매핑되어 딜레이가 사라짐
+# [핵심] 시뮬레이션 변수들을 Session State에 초기화 (딕셔너리가 아닌 개별 키 사용 권장)
+# 이렇게 해야 위젯(Input)과 값이 1:1로 매핑되어 "즉시 반영"되고 "유지"됩니다.
 defaults = {
     'sim_sbp': 120, 'sim_dbp': 80, 'sim_pr': 80, 'sim_rr': 20, 
     'sim_bt': 36.5, 'sim_alb': 4.0, 'sim_crp': 0.5, 
@@ -138,7 +155,7 @@ for key, val in defaults.items():
 # 6. 예측 및 보정 함수
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static):
-    # Session State에서 현재 값들을 바로 가져옴 (가장 최신 값)
+    # Session State의 최신 값을 바로 가져옴
     input_vals = {
         'sbp': st.session_state.sim_sbp,
         'dbp': st.session_state.sim_dbp,
@@ -158,6 +175,7 @@ def calculate_risk_score(pt_static):
         feature_cols = res['features']
         
         input_data = {col: 0 for col in feature_cols}
+        
         input_data['나이'] = pt_static['age']
         input_data['성별'] = 1 if pt_static['gender'] == 'M' else 0
         input_data['SBP'] = input_vals['sbp']
@@ -222,6 +240,7 @@ def show_risk_details(name, factors, current_score):
         with c3:
             st.markdown("##### ✅ 필수 간호 진술문")
             with st.container(border=True):
+                # 저장된 Session State 값 기반으로 체크 여부 결정
                 chk_rail = st.checkbox("침상 난간(Side Rail) 올림 확인", value=(current_score >= 40))
                 chk_med = st.checkbox("💊 수면제 투여 후 30분 관찰", value=st.session_state.sim_meds)
                 chk_nutri = st.checkbox("🥩 영양팀 협진 의뢰", value=(st.session_state.sim_alb < 3.0))
@@ -250,10 +269,9 @@ def show_risk_details(name, factors, current_score):
             colors = []
             for feature in df_imp['feature']:
                 color = "#e0e0e0"
-                # 현재 시뮬레이션 값과 비교
-                if feature == "나이" and st.session_state.sim_input.get('age', 0) >= 65: color = "#ff5252" # Note: Age is static in list but checked against
-                # 나이는 환자 리스트에서 가져와야 함 (여기서는 간략화)
-                if feature == "albumin" and st.session_state.sim_alb < 3.0: color = "#ff5252"
+                # 현재 Session State 값과 비교
+                if feature == "나이" and PATIENTS_BASE[st.session_state.current_pt_idx]['age'] >= 65: color = "#ff5252"
+                elif feature == "albumin" and st.session_state.sim_alb < 3.0: color = "#ff5252"
                 elif feature == "SBP" and (st.session_state.sim_sbp < 100 or st.session_state.sim_sbp > 160): color = "#ff5252"
                 elif feature == "PR" and st.session_state.sim_pr > 100: color = "#ff5252"
                 colors.append(color)
@@ -282,7 +300,7 @@ with col_sidebar:
     st.markdown("### 🏥 재원 환자")
     idx = st.radio("환자 리스트", range(len(PATIENTS_BASE)), format_func=lambda i: f"[{PATIENTS_BASE[i]['bed']}] {PATIENTS_BASE[i]['name']}", label_visibility="collapsed")
     
-    # 환자 변경 시 값 리셋
+    # 환자 변경 시 값 리셋 (초기값으로 복구)
     if idx != st.session_state.current_pt_idx:
         st.session_state.current_pt_idx = idx
         st.session_state.alarm_confirmed = False 
@@ -302,8 +320,8 @@ with col_sidebar:
     
     st.markdown("---")
     
-    # 점수 계산 (항상 최신값 사용)
-    fall_score = calculate_risk_score(curr_pt_base, None) # input_vals 인자는 함수 안에서 session_state로 대체됨
+    # 점수 계산 (현재 Session State 값 사용)
+    fall_score = calculate_risk_score(curr_pt_base)
     sore_score = 15
     
     f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
@@ -313,6 +331,7 @@ with col_sidebar:
     if fall_score >= 60 and not st.session_state.alarm_confirmed:
         alarm_class = "alarm-active"
 
+    # 가로형 계기판
     st.markdown(f"""
     <div class="digital-monitor-container {alarm_class}">
         <div class="score-box">
@@ -362,7 +381,7 @@ with col_main:
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
-                # [핵심] 위젯 값을 직접 Session State Key와 연결 (on_change 불필요, 자동 동기화)
+                # [핵심] key를 설정하여 Session State와 위젯을 1:1로 묶음 -> 값 자동 유지 & 즉시 반영
                 r1, r2 = st.columns(2)
                 st.number_input("SBP (수축기)", step=10, key="sim_sbp")
                 st.number_input("DBP (이완기)", step=10, key="sim_dbp")

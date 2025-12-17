@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. 스타일 (CSS) - 알람, 디지털 계기판, EMR 테마
+# 2. 스타일 (CSS) - 알람 2버튼, 가로 계기판
 # --------------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -31,39 +31,50 @@ st.markdown("""
     }
     .header-info-text { font-size: 1.1em; color: #eceff1; margin-right: 15px; }
 
-    /* 좌측 디지털 계기판 */
+    /* 디지털 계기판 (가로형) */
     .digital-monitor-container {
         background-color: #000000; border: 2px solid #455a64; border-radius: 8px;
         padding: 15px; margin-top: 15px; margin-bottom: 5px;
         box-shadow: inset 0 0 20px rgba(0,0,0,0.9); transition: border 0.3s;
+        display: flex; justify-content: space-around; align-items: center; /* 가로 정렬 핵심 */
     }
-    /* 알람 점멸 효과 */
     @keyframes blink { 50% { border-color: #ff5252; box-shadow: 0 0 15px #ff5252; } }
     .alarm-active { animation: blink 1s infinite; border: 2px solid #ff5252 !important; }
 
+    .score-box { text-align: center; width: 45%; }
     .digital-number {
-        font-family: 'Consolas', monospace; font-size: 40px; font-weight: 900; line-height: 1.0;
+        font-family: 'Consolas', monospace; font-size: 36px; font-weight: 900; line-height: 1.0;
         text-shadow: 0 0 10px rgba(255,255,255,0.4); margin-top: 5px;
     }
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
+    .divider-line { width: 1px; height: 50px; background-color: #444; }
 
-    /* [NEW] 우측 하단 커스텀 알람 팝업 */
+    /* [NEW] 커스텀 알람 박스 (버튼 2개) */
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 400px;
+        position: fixed; bottom: 30px; right: 30px; width: 420px;
         background-color: #263238; border-left: 8px solid #ff5252;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
         padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
     }
     @keyframes slideIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
     
-    .alert-title { color: #ff5252; font-weight: bold; font-size: 1.3em; margin-bottom: 10px; display: flex; align-items: center; }
+    .alert-title { color: #ff5252; font-weight: bold; font-size: 1.3em; margin-bottom: 10px; }
     .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.4; }
     .alert-factors { background-color: #3e2723; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
-    .alert-btn {
-        background-color: #d32f2f; color: white; text-align: center; padding: 10px; 
-        border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    
+    /* 버튼 컨테이너 */
+    .alert-btn-container { display: flex; gap: 10px; }
+    
+    .btn-confirm {
+        flex: 1; background-color: #546e7a; color: white; text-align: center; padding: 10px; 
+        border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none;
     }
-    .alert-btn:hover { background-color: #b71c1c; }
+    .btn-detail {
+        flex: 1.5; background-color: #d32f2f; color: white; text-align: center; padding: 10px; 
+        border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none;
+    }
+    .btn-confirm:hover { background-color: #78909c; }
+    .btn-detail:hover { background-color: #b71c1c; }
 
     /* 기타 UI */
     .note-entry { background-color: #2c3e50; padding: 15px; border-radius: 5px; border-left: 4px solid #0288d1; margin-bottom: 10px; }
@@ -103,7 +114,7 @@ res = load_resources()
 # 4. 예측 및 보정 함수
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static, input_vals):
-    # 1. AI 모델 예측
+    # 1. AI 예측
     base_score = 0
     if res and 'model' in res:
         model = res['model']
@@ -132,7 +143,7 @@ def calculate_risk_score(pt_static, input_vals):
         except:
             base_score = 10 
 
-    # 2. 보정 로직 (Calibration)
+    # 2. 보정
     calibration_score = 0
     if input_vals['albumin'] < 3.0: calibration_score += 30
     if input_vals['meds']: calibration_score += 30
@@ -151,11 +162,18 @@ if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
+if 'show_popup' not in st.session_state: st.session_state.show_popup = False # 팝업 트리거용
 
-# 알람 확인 처리 (URL 쿼리 파라미터 감지)
-if "confirm_alarm" in st.query_params:
-    st.session_state.alarm_confirmed = True
-    st.query_params.clear() # 파라미터 초기화 (재접속 시 알람 다시 뜨지 않게)
+# 알람 버튼 처리 (URL 쿼리)
+if "action" in st.query_params:
+    action = st.query_params["action"]
+    if action == "confirm":
+        st.session_state.alarm_confirmed = True
+    elif action == "detail":
+        st.session_state.alarm_confirmed = True
+        st.session_state.show_popup = True # 팝업 열기 트리거
+    
+    st.query_params.clear() # 파라미터 초기화
 
 PATIENTS_BASE = [
     {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
@@ -165,7 +183,7 @@ PATIENTS_BASE = [
 ]
 
 # --------------------------------------------------------------------------------
-# 6. 팝업창 (상세 분석)
+# 6. 팝업창
 # --------------------------------------------------------------------------------
 @st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
 def show_risk_details(name, factors, current_score, input_vals):
@@ -209,49 +227,24 @@ def show_risk_details(name, factors, current_score, input_vals):
 
     with tab2:
         st.markdown("##### 🔍 환자 맞춤형 위험 요인 (Top 10)")
-        st.caption("현재 환자 상태에서 **위험 구간에 해당되는 항목은 붉은색**으로 표시됩니다.")
         if res and res['importance'] is not None:
             df_imp = res['importance'].copy().sort_values('importance', ascending=True).tail(10)
-            
             colors = []
-            texts = []
             for feature in df_imp['feature']:
-                color = "#e0e0e0" # 기본 회색
-                val_text = "-"
-                
-                # 시뮬레이션 값과 비교하여 위험 시 빨간색
-                if feature == "나이":
-                    val = input_vals['age']
-                    if val >= 65: color = "#ff5252"; val_text = f"{val}세 (고령)"
-                    else: val_text = f"{val}세"
-                elif feature == "albumin":
-                    val = input_vals['albumin']
-                    if val < 3.0: color = "#ff5252"; val_text = f"{val} (저하)"
-                    else: val_text = f"{val}"
-                elif feature == "SBP":
-                    val = input_vals['sbp']
-                    if val < 100 or val > 160: color = "#ff5252"; val_text = f"{val} (비정상)"
-                    else: val_text = f"{val}"
-                elif feature == "PR":
-                    val = input_vals['pr']
-                    if val > 100: color = "#ff5252"; val_text = f"{val} (빈맥)"
-                    else: val_text = f"{val}"
-                
+                color = "#e0e0e0"
+                if feature == "나이" and input_vals['age'] >= 65: color = "#ff5252"
+                elif feature == "albumin" and input_vals['albumin'] < 3.0: color = "#ff5252"
+                elif feature == "SBP" and (input_vals['sbp'] < 100 or input_vals['sbp'] > 160): color = "#ff5252"
+                elif feature == "PR" and input_vals['pr'] > 100: color = "#ff5252"
                 colors.append(color)
-                texts.append(val_text)
-            
             df_imp['color'] = colors
-            df_imp['text'] = texts
             
             chart = alt.Chart(df_imp).mark_bar().encode(
                 x=alt.X('importance', title='기여도'),
                 y=alt.Y('feature', sort='-x', title='변수명'),
-                color=alt.Color('color', scale=None),
-                tooltip=['feature', 'importance']
+                color=alt.Color('color', scale=None)
             ).properties(height=350)
-            
-            text_layer = chart.mark_text(align='left', dx=3).encode(text='text')
-            st.altair_chart(chart + text_layer, use_container_width=True)
+            st.altair_chart(chart, use_container_width=True)
         else:
             st.info("중요도 데이터가 없습니다.")
 
@@ -261,9 +254,7 @@ def show_risk_details(name, factors, current_score, input_vals):
 col_sidebar, col_main = st.columns([2, 8])
 curr_pt_base = PATIENTS_BASE[st.session_state.current_pt_idx]
 
-# ==============================================================================
-# [좌측 패널] 환자 리스트 + 결과 계기판
-# ==============================================================================
+# [좌측 패널]
 with col_sidebar:
     st.selectbox("근무 DUTY", ["Day", "Evening", "Night"])
     st.divider()
@@ -272,49 +263,42 @@ with col_sidebar:
     idx = st.radio("환자 리스트", range(len(PATIENTS_BASE)), format_func=lambda i: f"[{PATIENTS_BASE[i]['bed']}] {PATIENTS_BASE[i]['name']}", label_visibility="collapsed")
     if idx != st.session_state.current_pt_idx:
         st.session_state.current_pt_idx = idx
-        st.session_state.alarm_confirmed = False # 환자 바뀌면 알람 리셋
+        st.session_state.alarm_confirmed = False 
         st.rerun()
     curr_pt_base = PATIENTS_BASE[idx]
     
     st.markdown("---")
     
-    # 세션에 입력값이 없으면 초기화
     if 'sim_input' not in st.session_state:
         st.session_state.sim_input = {
             'age': curr_pt_base['age'], 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
             'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
         }
     
-    # 점수 계산
     fall_score = calculate_risk_score(curr_pt_base, st.session_state.sim_input)
     sore_score = 15
     
-    # 계기판 색상
     f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
     s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
     
-    # 알람 상태 체크 (점수 60 이상 AND 확인 안 함)
     alarm_class = ""
     if fall_score >= 60 and not st.session_state.alarm_confirmed:
         alarm_class = "alarm-active"
 
+    # [수정] 가로 배치 (flex-direction: row)
     st.markdown(f"""
     <div class="digital-monitor-container {alarm_class}">
-        <div class="monitor-row">
-            <div style="text-align:center; width:45%; border-right:1px solid #444;">
-                <div class="monitor-label">FALL RISK</div>
-                <div class="digital-number" style="color: {f_color};">{fall_score}</div>
-            </div>
-            <div style="width: 2px; height: 50px; background-color: #444;"></div>
-            <div style="text-align:center; width:45%;">
-                <div class="monitor-label">SORE RISK</div>
-                <div class="digital-number" style="color: {s_color};">{sore_score}</div>
-            </div>
+        <div class="score-box">
+            <div class="monitor-label">FALL RISK</div>
+            <div class="digital-number" style="color: {f_color};">{fall_score}</div>
+        </div>
+        <div class="divider-line"></div> <div class="score-box">
+            <div class="monitor-label">SORE RISK</div>
+            <div class="digital-number" style="color: {s_color};">{sore_score}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # 위험 요인 텍스트 (알람 팝업 및 상세 버튼용)
     detected_factors = []
     inp = st.session_state.sim_input
     if inp['age'] >= 65: detected_factors.append("고령")
@@ -326,9 +310,12 @@ with col_sidebar:
     if st.button("🔍 상세 분석 및 중재 기록 열기", type="primary", use_container_width=True):
         show_risk_details(curr_pt_base['name'], detected_factors, fall_score, inp)
 
-# ==============================================================================
-# [우측 메인 패널] 시뮬레이션 및 데이터
-# ==============================================================================
+    # 알람 버튼으로 인한 팝업 자동 실행 로직
+    if st.session_state.show_popup:
+        show_risk_details(curr_pt_base['name'], detected_factors, fall_score, inp)
+        st.session_state.show_popup = False # 한 번 띄우고 리셋
+
+# [우측 메인 패널]
 with col_main:
     st.markdown(f"""
     <div class="header-container">
@@ -349,7 +336,6 @@ with col_main:
     with tab1:
         c1, c2 = st.columns([1.2, 1])
         
-        # [왼쪽] 실시간 데이터 입력 (Simulation)
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
@@ -366,13 +352,11 @@ with col_main:
                 new_mental = st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"], index=0, key="new_mental")
                 new_meds = st.checkbox("💊 고위험 약물(수면제 등) 복용", value=st.session_state.sim_input['meds'], key="new_meds")
                 
-                # 입력값 업데이트
                 st.session_state.sim_input.update({
                     'age': new_age, 'sbp': new_sbp, 'dbp': new_dbp, 'pr': new_pr, 'rr': new_rr,
                     'bt': new_bt, 'albumin': new_alb, 'mental': new_mental, 'meds': new_meds
                 })
 
-        # [오른쪽] V/S Summary (연동됨)
         with c2:
             st.markdown("##### 📊 환자 상태 요약")
             st.markdown(f"""
@@ -407,7 +391,7 @@ with col_main:
         st.text_area("추가 기록", height=100)
         st.button("저장")
 
-# [NEW] 우측 하단 커스텀 알람 팝업 (HTML Rendering)
+# [NEW] 스마트 알람 (2 버튼 선택)
 if fall_score >= 60 and not st.session_state.alarm_confirmed:
     factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
     
@@ -421,9 +405,16 @@ if fall_score >= 60 and not st.session_state.alarm_confirmed:
             <b>[감지된 주요 위험 요인]</b><br>
             • {factors_str}
         </div>
-        <a href="?confirm_alarm=true" target="_self" style="text-decoration:none;">
-            <div class="alert-btn">확인 (Confirm)</div>
-        </a>
+        
+        <div class="alert-btn-container">
+            <a href="?action=confirm" target="_self" class="btn-confirm">
+                확인 (닫기)
+            </a>
+            
+            <a href="?action=detail" target="_self" class="btn-detail">
+                상세 분석 및 기록
+            </a>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 

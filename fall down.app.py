@@ -6,7 +6,7 @@ import joblib  # AI 모델 로딩
 import numpy as np
 
 # --------------------------------------------------------------------------------
-# 1. 페이지 설정
+# 1. 페이지 설정 (반드시 코드 맨 처음에 와야 함)
 # --------------------------------------------------------------------------------
 st.set_page_config(
     page_title="SNUH Ward EMR - AI System",
@@ -16,42 +16,46 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. [핵심] AI 모델 & 데이터 파일 로딩
+# 2. [핵심] 리소스 로딩 (모델, 변수명, 중요도 데이터)
 # --------------------------------------------------------------------------------
 @st.cache_resource
 def load_resources():
     resources = {}
     try:
-        # 1. 모델 파일
+        # 1. AI 모델 (뇌)
         resources['model'] = joblib.load('rf_fall_model.joblib')
         
-        # 2. 변수 리스트 (CSV)
+        # 2. 변수 리스트 (처방전)
         df_cols = pd.read_csv('rf_model_feature_columns.csv')
         resources['features'] = df_cols['feature'].tolist()
         
-        # 3. [NEW] 중요도 데이터 (AI 근거)
-        resources['importance'] = pd.read_csv('rf_feature_importance_top10.csv')
-        
+        # 3. 중요도 데이터 (근거) - 파일이 없어도 에러 안 나게 처리
+        try:
+            resources['importance'] = pd.read_csv('rf_feature_importance_top10.csv')
+        except:
+            resources['importance'] = None
+            
     except Exception as e:
-        print(f"파일 로딩 에러: {e}")
+        # 파일이 하나라도 없으면 None 반환 (앱이 꺼지는 것 방지)
         return None
     return resources
 
 res = load_resources()
 
 # --------------------------------------------------------------------------------
-# 3. [핵심] 예측 함수
+# 3. [핵심] 예측 함수 (환자 정보 -> 점수 변환)
 # --------------------------------------------------------------------------------
 def predict_fall_risk(pt_info):
+    # 모델 로딩 실패 시 0점 처리
     if res is None or 'model' not in res: return 0
     
     model = res['model']
     feature_cols = res['features']
     
-    # 입력 데이터 초기화
+    # 1. 입력 데이터 0으로 초기화
     input_data = {col: 0 for col in feature_cols}
     
-    # 데이터 매핑 (환자 정보 -> AI 입력값)
+    # 2. 환자 정보 매핑 (KeyError 방지용 get 사용)
     input_data['나이'] = pt_info.get('age', 60)
     input_data['SBP'] = pt_info.get('sbp', 120)
     input_data['DBP'] = pt_info.get('dbp', 80)
@@ -61,18 +65,20 @@ def predict_fall_risk(pt_info):
     input_data['albumin'] = pt_info.get('albumin', 4.0)
     input_data['crp'] = pt_info.get('crp', 0.5)
     
+    # 성별 처리
     if pt_info.get('gender') == 'M': input_data['성별'] = 1
     
     try:
+        # DataFrame 변환 및 예측
         input_df = pd.DataFrame([input_data])
-        input_df = input_df[feature_cols] # 순서 정렬
+        input_df = input_df[feature_cols] # 순서 강제 맞춤
         prob = model.predict_proba(input_df)[0][1]
         return int(prob * 100)
     except:
         return 0
 
 # --------------------------------------------------------------------------------
-# 4. 스타일 (CSS) - EMR 다크모드 + 시각화 스타일
+# 4. 스타일 (CSS) - EMR 다크모드
 # --------------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -87,13 +93,12 @@ st.markdown("""
     .header-info-text { font-size: 1.1em; color: #eceff1; margin-right: 15px; }
     .header-label { font-size: 0.8em; color: #b0bec5; }
 
-    /* 디지털 계기판 */
+    /* 디지털 계기판 (검은색) */
     .digital-monitor-container {
         background-color: #000000; border: 2px solid #455a64; border-radius: 8px;
         padding: 15px; margin-top: 15px; margin-bottom: 5px;
         box-shadow: inset 0 0 20px rgba(0,0,0,0.9);
     }
-    .monitor-row { display: flex; justify-content: space-around; align-items: center; }
     .digital-number {
         font-family: 'Consolas', monospace; font-size: 40px; font-weight: 900; line-height: 1.0;
         text-shadow: 0 0 10px rgba(255,255,255,0.4); margin-top: 5px;
@@ -107,7 +112,7 @@ st.markdown("""
     }
     .note-time { color: #81d4fa; font-weight: bold; margin-bottom: 5px; font-size: 0.9em; }
 
-    /* 기타 UI */
+    /* 기타 UI 스타일 */
     .patient-card { padding: 8px; background-color: #2c3e50; border-left: 4px solid #546e7a; border-radius: 4px; margin-bottom: 5px; cursor: pointer; }
     div[data-testid="stDialog"] { background-color: #263238; color: #eceff1; }
     .stButton > button { background-color: #37474f; color: white; border: 1px solid #455a64; }
@@ -115,6 +120,7 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { background-color: #263238; color: #b0bec5; border-radius: 4px 4px 0 0; }
     .stTabs [aria-selected="true"] { background-color: #0277bd; color: white; }
     .risk-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin: 2px; border: 1px solid #ff5252; color: #ff867c; }
+    .legend-item { display: inline-block; padding: 2px 8px; margin-right: 5px; border-radius: 3px; font-size: 0.75em; font-weight: bold; color: white; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,7 +133,7 @@ if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'selected_date' not in st.session_state: st.session_state.selected_date = datetime.date.today()
 if 'log_history' not in st.session_state: st.session_state.log_history = []
 
-# [환자 DB]
+# [환자 DB] AI 예측에 필요한 상세 데이터 포함
 PATIENTS_DB = [
     {
         "id": "12345678", "bed": "04-01", "name": "김철수", "gender": "M", "age": 68,
@@ -168,16 +174,16 @@ def get_orders(pt_name, date_obj):
     return pd.DataFrame(base_orders)
 
 # --------------------------------------------------------------------------------
-# 6. [핵심 기능] 팝업 & 스마트 차팅 + AI 근거 그래프
+# 6. [핵심 기능] 팝업 (중재 선택 + AI 근거 그래프)
 # --------------------------------------------------------------------------------
 @st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
 def show_risk_details(name, data, current_score):
     st.info(f"🕒 **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}** 기준, {name} 님의 분석 결과입니다.")
     
-    # 탭을 추가해서 '중재'와 '근거(XAI)'를 분리
+    # 탭 구성: 중재 vs 근거
     tab1, tab2 = st.tabs(["🛡️ 맞춤형 간호중재", "📊 AI 판단 근거 (XAI)"])
     
-    # [Tab 1] 기존의 중재 체크리스트 흐름
+    # [Tab 1] 간호 중재 및 자동 차팅
     with tab1:
         c1, c2, c3 = st.columns([1, 0.2, 1])
         with c1:
@@ -209,6 +215,7 @@ def show_risk_details(name, data, current_score):
 
         st.markdown("---")
         
+        # 저장 버튼 (자동 차팅)
         if st.button("간호 수행 완료 및 기록 저장 (Auto-Charting)", type="primary", use_container_width=True):
             current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
             risk_factors_str = ", ".join(data['factors']) if data['factors'] else "특이 위험요인 없음"
@@ -230,16 +237,14 @@ def show_risk_details(name, data, current_score):
             time.sleep(1)
             st.rerun()
 
-    # [Tab 2] AI 판단 근거 (Feature Importance) - 여기가 추가된 부분!
+    # [Tab 2] AI 판단 근거 (Feature Importance)
     with tab2:
         st.markdown("##### 🤖 AI 모델의 주요 판단 기준 (Top 10)")
         st.caption("AI가 낙상 위험도를 예측할 때 어떤 변수를 중요하게 고려했는지 보여줍니다.")
         
-        if res and 'importance' in res:
-            # 막대 그래프 그리기 (Feature Importance)
+        if res and 'importance' in res and res['importance'] is not None:
             df_imp = res['importance']
-            # 보기 좋게 컬럼명 매핑 (영문 -> 한글, 필요시)
-            st.bar_chart(df_imp.set_index('feature'), color="#005eb8", horizontal=True)
+            st.bar_chart(df_imp.set_index('feature'), color="#005eb8")
         else:
             st.info("중요도 데이터 파일(rf_feature_importance_top10.csv)이 없습니다.")
 
@@ -372,7 +377,7 @@ with col_main:
     with m_tab2:
         st.table(pd.DataFrame({"검사명": ["Hb", "WBC"], "결과": ["13.2", "7.5"]}))
 
-    # [핵심] 간호기록 탭: 스마트 차팅 결과 표시
+    # [핵심] 간호기록 탭
     with m_tab3:
         st.markdown("##### 📋 간호진술문 (Nursing Note)")
         st.caption("※ 좌측 [상세 분석] 팝업에서 저장하면 이곳에 자동 입력됩니다.")

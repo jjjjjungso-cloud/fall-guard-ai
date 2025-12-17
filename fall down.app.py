@@ -4,7 +4,7 @@ import datetime
 import time
 import joblib
 import numpy as np
-import altair as alt  # 시각화 라이브러리
+import altair as alt
 
 # --------------------------------------------------------------------------------
 # 1. 페이지 설정
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. 스타일 (CSS) - EMR 다크모드, 알람 효과, 디지털 계기판
+# 2. 스타일 (CSS)
 # --------------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -31,14 +31,13 @@ st.markdown("""
     }
     .header-info-text { font-size: 1.1em; color: #eceff1; margin-right: 15px; }
 
-    /* 디지털 계기판 (검은색 박스) */
+    /* 디지털 계기판 */
     .digital-monitor-container {
         background-color: #000000; border: 2px solid #455a64; border-radius: 8px;
         padding: 15px; margin-top: 15px; margin-bottom: 5px;
-        box-shadow: inset 0 0 20px rgba(0,0,0,0.9);
-        transition: border 0.3s;
+        box-shadow: inset 0 0 20px rgba(0,0,0,0.9); transition: border 0.3s;
     }
-    /* 알람 애니메이션 (빨간 테두리 깜빡임) */
+    /* 알람 효과 */
     @keyframes blink { 50% { border-color: #ff5252; box-shadow: 0 0 15px #ff5252; } }
     .alarm-active { animation: blink 1s infinite; border: 2px solid #ff5252 !important; }
 
@@ -48,32 +47,31 @@ st.markdown("""
     }
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
 
-    /* 간호기록 */
-    .note-entry {
-        background-color: #2c3e50; padding: 15px; border-radius: 5px;
-        border-left: 4px solid #0288d1; margin-bottom: 10px; font-size: 0.95em; line-height: 1.5;
-    }
-    
     /* 기타 UI */
+    .note-entry { background-color: #2c3e50; padding: 15px; border-radius: 5px; border-left: 4px solid #0288d1; margin-bottom: 10px; }
+    .note-time { color: #81d4fa; font-weight: bold; margin-bottom: 5px; font-size: 0.9em; }
+    .patient-card { padding: 8px; background-color: #2c3e50; border-left: 4px solid #546e7a; border-radius: 4px; margin-bottom: 5px; cursor: pointer; }
+    .risk-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin: 2px; border: 1px solid #ff5252; color: #ff867c; }
+    .legend-item { display: inline-block; padding: 2px 8px; margin-right: 5px; border-radius: 3px; font-size: 0.75em; font-weight: bold; color: white; text-align: center; }
+    
     div[data-testid="stDialog"] { background-color: #263238; color: #eceff1; }
     .stButton > button { background-color: #37474f; color: white; border: 1px solid #455a64; }
-    .risk-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin: 2px; border: 1px solid #ff5252; color: #ff867c; }
+    .stTabs [data-baseweb="tab-list"] { gap: 2px; }
+    .stTabs [data-baseweb="tab"] { background-color: #263238; color: #b0bec5; border-radius: 4px 4px 0 0; }
+    .stTabs [aria-selected="true"] { background-color: #0277bd; color: white; }
 </style>
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------------
-# 3. 리소스 로딩 (모델, 변수명, 중요도 데이터)
+# 3. 리소스 로딩
 # --------------------------------------------------------------------------------
 @st.cache_resource
 def load_resources():
     resources = {}
     try:
-        # 1. AI 모델
         resources['model'] = joblib.load('rf_fall_model.joblib')
-        # 2. 변수 리스트
         df_cols = pd.read_csv('rf_model_feature_columns.csv')
         resources['features'] = df_cols['feature'].tolist()
-        # 3. 중요도 데이터 (XAI용)
         try:
             resources['importance'] = pd.read_csv('rf_feature_importance_top10.csv')
         except:
@@ -85,51 +83,92 @@ def load_resources():
 res = load_resources()
 
 # --------------------------------------------------------------------------------
-# 4. 예측 함수
+# 4. 예측 및 보정 함수
 # --------------------------------------------------------------------------------
-def predict_fall_risk(input_vals):
-    if res is None or 'model' not in res: return 0
-    
-    model = res['model']
-    feature_cols = res['features']
-    
-    input_data = {col: 0 for col in feature_cols}
-    
-    # 입력값 매핑
-    input_data['나이'] = input_vals.get('age', 60)
-    input_data['SBP'] = input_vals.get('sbp', 120)
-    input_data['DBP'] = input_vals.get('dbp', 80)
-    input_data['PR'] = input_vals.get('pr', 80)
-    input_data['RR'] = input_vals.get('rr', 20)
-    input_data['BT'] = input_vals.get('bt', 36.5)
-    input_data['albumin'] = input_vals.get('albumin', 4.0)
-    input_data['crp'] = input_vals.get('crp', 0.5)
-    
-    if input_vals.get('gender') == 'M': input_data['성별'] = 1
-    
-    # 증상/상태 매핑 (간단 예시)
-    if 'symptom' in input_vals:
-        s_col = f"주증상_{input_vals['symptom']}"
-        if s_col in input_data: input_data[s_col] = 1
+def calculate_risk_score(pt_static, input_vals):
+    # 1. AI 모델 예측 (Base Score)
+    base_score = 0
+    if res and 'model' in res:
+        model = res['model']
+        feature_cols = res['features']
         
-    try:
-        input_df = pd.DataFrame([input_data])
-        input_df = input_df[feature_cols]
-        prob = model.predict_proba(input_df)[0][1]
-        return int(prob * 100)
-    except:
-        return 0
+        # 입력 데이터 매핑
+        input_data = {col: 0 for col in feature_cols}
+        
+        # 고정값 + 입력값 병합
+        input_data['나이'] = pt_static['age']
+        input_data['성별'] = 1 if pt_static['gender'] == 'M' else 0
+        
+        # 실시간 입력값 매핑 (Vital Signs 전체 반영)
+        input_data['SBP'] = input_vals['sbp']
+        input_data['DBP'] = input_vals['dbp']
+        input_data['PR'] = input_vals['pr']  # 맥박
+        input_data['RR'] = input_vals['rr']  # 호흡
+        input_data['BT'] = input_vals['bt']  # 체온
+        input_data['albumin'] = input_vals['albumin']
+        input_data['crp'] = input_vals['crp']
+        
+        # 의식 상태 매핑
+        mental_map = {"명료(Alert)": "alert", "기면(Drowsy)": "verbal response", "혼미(Stupor)": "painful response"}
+        m_val = mental_map.get(input_vals['mental'], "alert")
+        if f"내원시 반응_{m_val}" in input_data: input_data[f"내원시 반응_{m_val}"] = 1
+
+        try:
+            input_df = pd.DataFrame([input_data])
+            input_df = input_df[feature_cols]
+            prob = model.predict_proba(input_df)[0][1]
+            base_score = int(prob * 100)
+        except:
+            base_score = 10 
+
+    # 2. 보정 로직 (Calibration)
+    calibration_score = 0
+    
+    # (1) 알부민 3.0 미만: +30점
+    if input_vals['albumin'] < 3.0:
+        calibration_score += 30
+        
+    # (2) 고위험 약물 복용: +30점
+    if input_vals['meds']:
+        calibration_score += 30
+        
+    # (3) 나이 70세 이상: +10점
+    if pt_static['age'] >= 70:
+        calibration_score += 10
+        
+    # (4) 활력징후 이상 시 추가 가산점 (저혈압, 빈맥, 고열 등)
+    if input_vals['sbp'] < 90 or input_vals['sbp'] > 180: calibration_score += 15
+    if input_vals['pr'] > 100: calibration_score += 10
+    if input_vals['bt'] > 37.5: calibration_score += 5
+
+    # 최종 점수 합산 (최대 99점 제한)
+    final_score = base_score + calibration_score
+    return min(final_score, 99)
 
 # --------------------------------------------------------------------------------
-# 5. 팝업창 (XAI + 스마트 차팅)
+# 5. 데이터 초기화
+# --------------------------------------------------------------------------------
+if 'nursing_notes' not in st.session_state:
+    st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
+if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
+
+# 환자 기본 정보
+PATIENTS_BASE = [
+    {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
+    {"id": "87654321", "bed": "04-02", "name": "이영희", "gender": "F", "age": 65, "diag": "Stomach Cancer", "doc": "박위장", "nurse": "최간호"},
+    {"id": "11223344", "bed": "05-01", "name": "박민수", "gender": "M", "age": 82, "diag": "Femur Fracture", "doc": "최정형", "nurse": "김간호"},
+    {"id": "99887766", "bed": "05-02", "name": "정수진", "gender": "F", "age": 32, "diag": "Appendicitis", "doc": "이외과", "nurse": "박간호"},
+]
+
+# --------------------------------------------------------------------------------
+# 6. 팝업창
 # --------------------------------------------------------------------------------
 @st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
 def show_risk_details(name, factors, current_score, input_vals):
     st.info(f"🕒 **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}** 기준, {name} 님의 분석 결과입니다.")
     
-    tab1, tab2 = st.tabs(["🛡️ 맞춤형 간호중재", "📊 AI 판단 근거 (XAI)"])
+    tab1, tab2 = st.tabs(["🛡️ 맞춤형 간호중재", "📊 AI 판단 근거"])
     
-    # [Tab 1] 간호 중재 & 자동 차팅
     with tab1:
         c1, c2, c3 = st.columns([1, 0.2, 1])
         with c1:
@@ -144,8 +183,8 @@ def show_risk_details(name, factors, current_score, input_vals):
             st.markdown("##### ✅ 필수 간호 진술문")
             with st.container(border=True):
                 chk_rail = st.checkbox("침상 난간(Side Rail) 올림 확인", value=(current_score >= 40))
-                chk_med = st.checkbox("💊 수면제 투여 후 30분 관찰", value=("수면제" in str(factors)))
-                chk_nutri = st.checkbox("🥩 영양팀 협진 의뢰", value=("알부민" in str(factors)))
+                chk_med = st.checkbox("💊 수면제 투여 후 30분 관찰", value=input_vals['meds'])
+                chk_nutri = st.checkbox("🥩 영양팀 협진 의뢰", value=(input_vals['albumin'] < 3.0))
                 chk_edu = st.checkbox("📢 낙상 예방 교육 및 호출기 위치 안내", value=True)
 
         st.markdown("---")
@@ -153,85 +192,47 @@ def show_risk_details(name, factors, current_score, input_vals):
             current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
             risk_str = ", ".join(factors) if factors else "없음"
             actions = []
-            if chk_rail: actions.append("침상난간 2개 이상 올림 확인")
-            if chk_med: actions.append("수면제 투여 후 30분간 의식상태 관찰")
-            if chk_nutri: actions.append("영양 불균형 교정을 위해 협진 의뢰")
-            if chk_edu: actions.append("낙상 예방 교육 시행")
+            if chk_rail: actions.append("침상난간 올림 확인")
+            if chk_med: actions.append("투약 후 관찰")
+            if chk_nutri: actions.append("영양팀 협진")
+            if chk_edu: actions.append("예방 교육")
             
-            note_content = f"낙상위험평가({current_score}점) -> 위험요인({risk_str}) 확인 -> 중재({', '.join(actions)}) 시행함. 안전한 환경 조성 후 관찰함."
+            note_content = f"낙상위험평가({current_score}점) -> 위험요인({risk_str}) 확인 -> 중재({', '.join(actions)}) 시행함."
             st.session_state.nursing_notes.insert(0, {"time": current_time, "writer": "김분당", "content": note_content})
-            st.toast("✅ 간호기록 저장 완료!", icon="💾")
+            st.toast("저장되었습니다!")
             time.sleep(1)
             st.rerun()
 
-    # [Tab 2] XAI 시각화 (환자 맞춤형 하이라이트)
     with tab2:
-        st.markdown("##### 🔍 환자 맞춤형 위험 요인 분석")
-        st.caption("AI 중요도 상위 항목 중, **현재 환자에게 해당되는 위험 항목을 붉은색**으로 표시합니다.")
-        
+        st.markdown("##### 🔍 환자 맞춤형 위험 요인 (Top 10)")
         if res and res['importance'] is not None:
             df_imp = res['importance'].copy().sort_values('importance', ascending=True).tail(10)
             
-            # 색상/텍스트 로직
             colors = []
-            texts = []
             for feature in df_imp['feature']:
-                color = "#e0e0e0" # 기본 회색
-                txt = ""
-                
-                # 시뮬레이션 입력값(input_vals)과 비교
-                if feature == "나이":
-                    val = input_vals.get('age', 0)
-                    if val >= 65: color = "#ff5252"; txt = f"{val}세 (고령)"
-                    else: txt = f"{val}세"
-                elif feature == "albumin":
-                    val = input_vals.get('albumin', 4.0)
-                    if val < 3.0: color = "#ff5252"; txt = f"{val} (저하)"
-                    else: txt = f"{val}"
-                elif feature == "SBP":
-                    val = input_vals.get('sbp', 120)
-                    if val < 100 or val > 160: color = "#ff5252"; txt = f"{val} (비정상)"
-                    else: txt = f"{val}"
-                else:
-                    txt = "-"
-                
+                color = "#e0e0e0"
+                if feature == "나이" and input_vals['age'] >= 65: color = "#ff5252"
+                elif feature == "albumin" and input_vals['albumin'] < 3.0: color = "#ff5252"
+                elif feature == "SBP" and (input_vals['sbp'] < 100 or input_vals['sbp'] > 160): color = "#ff5252"
+                elif feature == "PR" and input_vals['pr'] > 100: color = "#ff5252"
                 colors.append(color)
-                texts.append(txt)
             
             df_imp['color'] = colors
-            df_imp['text'] = texts
             
-            # Altair 차트
             chart = alt.Chart(df_imp).mark_bar().encode(
                 x=alt.X('importance', title='기여도'),
                 y=alt.Y('feature', sort='-x', title='변수명'),
-                color=alt.Color('color', scale=None),
-                tooltip=['feature', 'importance']
+                color=alt.Color('color', scale=None)
             ).properties(height=350)
-            
-            text_layer = chart.mark_text(align='left', dx=3).encode(text='text')
-            st.altair_chart(chart + text_layer, use_container_width=True)
+            st.altair_chart(chart, use_container_width=True)
         else:
-            st.info("중요도 데이터 파일이 없습니다.")
-
-# --------------------------------------------------------------------------------
-# 6. 데이터 초기화 및 기본 환자 정보
-# --------------------------------------------------------------------------------
-if 'nursing_notes' not in st.session_state:
-    st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
-if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
-
-PATIENTS_BASE = [
-    {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
-    {"id": "87654321", "bed": "04-02", "name": "이영희", "gender": "F", "diag": "Stomach Cancer", "doc": "박위장", "nurse": "최간호"},
-    {"id": "11223344", "bed": "05-01", "name": "박민수", "gender": "M", "diag": "Femur Fracture", "doc": "최정형", "nurse": "김간호"},
-    {"id": "99887766", "bed": "05-02", "name": "정수진", "gender": "F", "diag": "Appendicitis", "doc": "이외과", "nurse": "박간호"},
-]
+            st.info("중요도 데이터가 없습니다.")
 
 # --------------------------------------------------------------------------------
 # 7. 메인 레이아웃
 # --------------------------------------------------------------------------------
 col_sidebar, col_main = st.columns([2, 8])
+curr_pt_base = PATIENTS_BASE[st.session_state.current_pt_idx]
 
 # [좌측 패널]
 with col_sidebar:
@@ -243,40 +244,51 @@ with col_sidebar:
     idx = st.radio("환자 리스트", range(len(PATIENTS_BASE)), format_func=lambda i: f"[{PATIENTS_BASE[i]['bed']}] {PATIENTS_BASE[i]['name']}", label_visibility="collapsed")
     st.session_state.current_pt_idx = idx
     curr_pt_base = PATIENTS_BASE[idx]
+    
     st.markdown("---")
     
-    # 2. [핵심] 실시간 데이터 입력 (Simulation)
+    # 2. [실시간 데이터 입력] (활력징후 전체 포함)
     with st.expander("⚡ 실시간 데이터 입력 (Simulation)", expanded=True):
-        age_val = 68 if idx == 0 else (79 if idx == 1 else 45)
+        st.caption(f"환자: {curr_pt_base['name']} (나이: {curr_pt_base['age']}세)")
         
         input_vals = {}
-        input_vals['age'] = st.number_input("나이 (Age)", value=age_val, step=1)
+        input_vals['age'] = curr_pt_base['age'] # 고정값
+        
+        # (2) Vital Signs (전체)
         c1, c2 = st.columns(2)
-        input_vals['sbp'] = c1.number_input("SBP", value=120, step=10)
-        input_vals['dbp'] = c2.number_input("DBP", value=80, step=10)
+        input_vals['sbp'] = c1.number_input("SBP (수축기)", value=120, step=10)
+        input_vals['dbp'] = c2.number_input("DBP (이완기)", value=80, step=10)
         
+        c3, c4 = st.columns(2)
+        input_vals['pr'] = c3.number_input("PR (맥박)", value=80, step=5)
+        input_vals['rr'] = c4.number_input("RR (호흡)", value=20, step=2)
+        
+        input_vals['bt'] = st.number_input("BT (체온)", value=36.5, step=0.1, format="%.1f")
+        
+        # (3) Lab & Others
         input_vals['albumin'] = st.slider("Albumin (영양)", 1.0, 5.5, 3.5, 0.1)
+        input_vals['crp'] = 0.5 # 고정 (화면 단순화)
         
-        # 고정값 (데모용)
-        input_vals['pr'] = 80; input_vals['rr'] = 20; input_vals['bt'] = 36.5; input_vals['crp'] = 0.5
-        input_vals['gender'] = curr_pt_base['gender']
-        input_vals['symptom'] = "OTHERS"; input_vals['mental'] = "alert"
+        # (4) 의식 상태 & 약물
+        input_vals['mental'] = st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"])
+        input_vals['meds'] = st.checkbox("💊 고위험 약물(수면제 등) 복용", value=False)
         
         # 위험 요인 텍스트 생성
         detected_factors = []
         if input_vals['age'] >= 65: detected_factors.append("고령")
         if input_vals['albumin'] < 3.0: detected_factors.append("알부민 저하")
+        if input_vals['meds']: detected_factors.append("수면제 복용")
         if input_vals['sbp'] < 100: detected_factors.append("저혈압")
+        if input_vals['pr'] > 100: detected_factors.append("빈맥")
 
-    # 3. AI 예측 실행
-    fall_score = predict_fall_risk(input_vals)
-    sore_score = 15
+    # 3. 점수 계산
+    fall_score = calculate_risk_score(curr_pt_base, input_vals)
+    sore_score = 15 
     
-    # 4. 디지털 계기판 + [알람 기능]
+    # 4. 디지털 계기판 + 알람
     f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
     s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
     
-    # [알람 로직] 점수가 60 이상이면 테두리 깜빡임 + Toast 팝업
     alarm_class = ""
     if fall_score >= 60:
         alarm_class = "alarm-active"
@@ -321,7 +333,7 @@ with col_main:
     with tab1:
         c1, c2 = st.columns([1, 1])
         with c1:
-            st.info("👈 좌측 '실시간 데이터 입력' 패널에서 수치를 변경해보세요. AI가 즉시 위험도를 재계산합니다.")
+            st.info("👈 좌측 패널에서 활력징후(V/S)를 변경하여 AI 반응을 확인하세요.")
             st.markdown(f"**[현재 입력된 V/S 및 Lab]**")
             st.json(input_vals)
         with c2:

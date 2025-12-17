@@ -452,10 +452,11 @@ with col_main:
         st.text_area("추가 기록", height=100)
         st.button("저장")
 
-# [NEW] 알람 (버튼을 HTML 안에 넣어서 내용물과 함께 움직이게 함)
+# [NEW] 알람 (알람 박스 + Confirm 버튼: 시각적으로 박스 내부처럼 보이게, 상태 리셋 없음)
 if fall_score >= 60 and not st.session_state.alarm_confirmed:
     factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
-    
+
+    # 알람 박스 (HTML)
     st.markdown(f"""
     <div class="custom-alert-box">
         <div class="alert-title">🚨 낙상 고위험 감지! ({fall_score}점)</div>
@@ -469,32 +470,15 @@ if fall_score >= 60 and not st.session_state.alarm_confirmed:
     </div>
     """, unsafe_allow_html=True)
 
-        # ✅ Confirm 버튼: 알람 박스 바로 아래에 고정 배치(가려짐/위치 이탈 방지)
-    with st.container():
-        st.markdown(
-            """
-            <div style="
-                position: fixed;
-                bottom: 0px;
-                right: 30px;
-                width: 380px;
-                margin-bottom: 20px;
-                z-index: 10000;
-            ">
-            """,
-            unsafe_allow_html=True
-        )
+    # ▶ 시각적으로 알람 박스 내부 버튼처럼 보이게 처리 (fixed 박스 아래에 붙이기)
+    st.markdown("<div style='margin-top:-8px'></div>", unsafe_allow_html=True)
 
-        if st.button(
-            "확인 (Confirm)",
-            key="confirm_alarm_btn",
-            use_container_width=True,
-        ):
-            confirm_alarm()
-            st.rerun()
+    if st.button("확인 (Confirm)", key="confirm_alarm_btn", use_container_width=True):
+        confirm_alarm()
+        st.rerun()
 
-        st.markdown("</div>", unsafe_allow_html=True)
 st.markdown("---")
+
 legends = [("수술전","#e57373"), ("수술중","#ba68c8"), ("검사후","#7986cb"), ("퇴원","#81c784"), ("신규오더","#ffb74d")]
 html = '<div style="display:flex; gap:10px;">' + "".join([f'<span class="legend-item" style="background:{c}">{l}</span>' for l,c in legends]) + '</div>'
 st.markdown(html, unsafe_allow_html=True)

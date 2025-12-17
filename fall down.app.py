@@ -17,16 +17,42 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. 쿼리 파라미터 처리
+# 2. 데이터 초기화 및 콜백 함수 (이 부분이 핵심 수정!)
 # --------------------------------------------------------------------------------
-if "action" in st.query_params:
-    action = st.query_params["action"]
-    if action == "confirm":
-        st.session_state.alarm_confirmed = True
-    elif action == "detail":
-        st.session_state.alarm_confirmed = True
-        st.session_state.show_popup = True
+if 'nursing_notes' not in st.session_state:
+    st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
+if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
+if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
+
+# [핵심] 시뮬레이션 데이터 초기화
+if 'sim_input' not in st.session_state:
+    st.session_state.sim_input = {
+        'age': 78, 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
+        'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
+    }
+
+# [핵심] 값이 변경되자마자 Session State를 업데이트하는 콜백 함수
+def update_sim():
+    st.session_state.sim_input['sbp'] = st.session_state.new_sbp
+    st.session_state.sim_input['dbp'] = st.session_state.new_dbp
+    st.session_state.sim_input['pr'] = st.session_state.new_pr
+    st.session_state.sim_input['rr'] = st.session_state.new_rr
+    st.session_state.sim_input['bt'] = st.session_state.new_bt
+    st.session_state.sim_input['albumin'] = st.session_state.new_alb
+    st.session_state.sim_input['mental'] = st.session_state.new_mental
+    st.session_state.sim_input['meds'] = st.session_state.new_meds
+
+# 알람 확인 (단순 닫기)
+if "confirm_alarm" in st.query_params:
+    st.session_state.alarm_confirmed = True
     st.query_params.clear()
+
+PATIENTS_BASE = [
+    {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
+    {"id": "87654321", "bed": "04-02", "name": "이영희", "gender": "F", "age": 65, "diag": "Stomach Cancer", "doc": "박위장", "nurse": "최간호"},
+    {"id": "11223344", "bed": "05-01", "name": "박민수", "gender": "M", "age": 82, "diag": "Femur Fracture", "doc": "최정형", "nurse": "김간호"},
+    {"id": "99887766", "bed": "05-02", "name": "정수진", "gender": "F", "age": 32, "diag": "Appendicitis", "doc": "이외과", "nurse": "박간호"},
+]
 
 # --------------------------------------------------------------------------------
 # 3. 스타일 (CSS)
@@ -58,7 +84,7 @@ st.markdown("""
     .divider-line { width: 1px; height: 50px; background-color: #444; }
 
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 400px;
+        position: fixed; bottom: 30px; right: 30px; width: 350px;
         background-color: #263238; border-left: 8px solid #ff5252;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
         padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
@@ -119,6 +145,7 @@ def calculate_risk_score(pt_static, input_vals):
         feature_cols = res['features']
         
         input_data = {col: 0 for col in feature_cols}
+        
         input_data['나이'] = pt_static['age']
         input_data['성별'] = 1 if pt_static['gender'] == 'M' else 0
         input_data['SBP'] = input_vals['sbp']
@@ -141,15 +168,11 @@ def calculate_risk_score(pt_static, input_vals):
         except:
             base_score = 10 
 
-    # 2. 보정 로직 (가산점)
+    # 2. 보정 로직 (즉시 반영됨)
     calibration_score = 0
     
     if input_vals['albumin'] < 3.0: calibration_score += 30
-    
-    # [핵심 수정] 여기서 input_vals['meds']가 True면 바로 +30
-    if input_vals['meds']: 
-        calibration_score += 30
-        
+    if input_vals['meds']: calibration_score += 30
     if pt_static['age'] >= 70: calibration_score += 10
     
     if input_vals['sbp'] < 90 or input_vals['sbp'] > 180: calibration_score += 15
@@ -160,32 +183,7 @@ def calculate_risk_score(pt_static, input_vals):
     return min(final_score, 99)
 
 # --------------------------------------------------------------------------------
-# 6. 데이터 초기화
-# --------------------------------------------------------------------------------
-if 'nursing_notes' not in st.session_state:
-    st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
-if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
-if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
-if 'show_popup' not in st.session_state: st.session_state.show_popup = False 
-
-# 세션 초기값 설정 (최초 1회)
-if 'sim_input' not in st.session_state:
-    # 기본값 설정
-    st.session_state.sim_input = {
-        'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
-        'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 
-        'mental': '명료(Alert)', 'meds': False
-    }
-
-PATIENTS_BASE = [
-    {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
-    {"id": "87654321", "bed": "04-02", "name": "이영희", "gender": "F", "age": 65, "diag": "Stomach Cancer", "doc": "박위장", "nurse": "최간호"},
-    {"id": "11223344", "bed": "05-01", "name": "박민수", "gender": "M", "age": 82, "diag": "Femur Fracture", "doc": "최정형", "nurse": "김간호"},
-    {"id": "99887766", "bed": "05-02", "name": "정수진", "gender": "F", "age": 32, "diag": "Appendicitis", "doc": "이외과", "nurse": "박간호"},
-]
-
-# --------------------------------------------------------------------------------
-# 7. 팝업창
+# 6. 팝업창
 # --------------------------------------------------------------------------------
 @st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
 def show_risk_details(name, factors, current_score, input_vals):
@@ -251,7 +249,7 @@ def show_risk_details(name, factors, current_score, input_vals):
             st.info("중요도 데이터가 없습니다.")
 
 # --------------------------------------------------------------------------------
-# 8. 메인 레이아웃 구성
+# 7. 메인 레이아웃 구성
 # --------------------------------------------------------------------------------
 col_sidebar, col_main = st.columns([2, 8])
 curr_pt_base = PATIENTS_BASE[st.session_state.current_pt_idx]
@@ -267,20 +265,19 @@ with col_sidebar:
         st.session_state.current_pt_idx = idx
         st.session_state.alarm_confirmed = False 
         
-        # 환자가 바뀌면 기본값도 리셋해주는 것이 자연스러움 (나이는 환자 정보 사용)
-        st.session_state.sim_input['meds'] = False 
-        st.session_state.sim_input['albumin'] = 4.0
+        # 환자가 바뀌면 시뮬레이션 값 리셋
+        st.session_state.sim_input = {
+            'age': PATIENTS_BASE[idx]['age'], 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
+            'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
+        }
         st.rerun()
+    
     curr_pt_base = PATIENTS_BASE[idx]
     
     st.markdown("---")
     
-    # [핵심 수정] 실시간 입력값을 담을 임시 딕셔너리 생성
-    # (session state 값을 그대로 쓰되, 계산 함수에는 바로 전달)
-    current_input_vals = st.session_state.sim_input.copy()
-    current_input_vals['age'] = curr_pt_base['age'] # 나이는 현재 환자 정보로 덮어쓰기
-    
-    fall_score = calculate_risk_score(curr_pt_base, current_input_vals)
+    # 점수 계산 (항상 최신 Sim Input 사용)
+    fall_score = calculate_risk_score(curr_pt_base, st.session_state.sim_input)
     sore_score = 15
     
     f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
@@ -306,18 +303,15 @@ with col_sidebar:
     """, unsafe_allow_html=True)
     
     detected_factors = []
-    if current_input_vals['age'] >= 65: detected_factors.append("고령")
-    if current_input_vals['albumin'] < 3.0: detected_factors.append("알부민 저하")
-    if current_input_vals['meds']: detected_factors.append("고위험 약물")
-    if current_input_vals['sbp'] < 100: detected_factors.append("저혈압")
-    if current_input_vals['pr'] > 100: detected_factors.append("빈맥")
+    inp = st.session_state.sim_input
+    if inp['age'] >= 65: detected_factors.append("고령")
+    if inp['albumin'] < 3.0: detected_factors.append("알부민 저하")
+    if inp['meds']: detected_factors.append("고위험 약물")
+    if inp['sbp'] < 100: detected_factors.append("저혈압")
+    if inp['pr'] > 100: detected_factors.append("빈맥")
     
     if st.button("🔍 상세 분석 및 중재 기록 열기", type="primary", use_container_width=True):
-        show_risk_details(curr_pt_base['name'], detected_factors, fall_score, current_input_vals)
-
-    if st.session_state.show_popup:
-        show_risk_details(curr_pt_base['name'], detected_factors, fall_score, current_input_vals)
-        st.session_state.show_popup = False 
+        show_risk_details(curr_pt_base['name'], detected_factors, fall_score, inp)
 
 # [우측 메인 패널]
 with col_main:
@@ -343,34 +337,34 @@ with col_main:
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
-                # [중요] key를 부여하여 session_state와 직접 연동
-                new_sbp = st.number_input("SBP (수축기)", value=st.session_state.sim_input['sbp'], step=10, key="sbp_input")
-                new_dbp = st.number_input("DBP (이완기)", value=st.session_state.sim_input['dbp'], step=10, key="dbp_input")
-                new_alb = st.slider("Albumin (영양)", 1.0, 5.5, st.session_state.sim_input['albumin'], 0.1, key="alb_input")
-                new_meds = st.checkbox("💊 고위험 약물(수면제 등) 복용", value=st.session_state.sim_input['meds'], key="meds_input")
+                # [중요] on_change=update_sim 을 추가하여 즉시 반영
+                r1, r2 = st.columns(2)
+                st.number_input("SBP (수축기)", value=st.session_state.sim_input['sbp'], step=10, key="new_sbp", on_change=update_sim)
+                st.number_input("DBP (이완기)", value=st.session_state.sim_input['dbp'], step=10, key="new_dbp", on_change=update_sim)
                 
-                # 추가 항목들
-                with st.expander("더 많은 항목 보기"):
-                    new_pr = st.number_input("PR (맥박)", value=st.session_state.sim_input['pr'], step=5, key="pr_input")
-                    new_rr = st.number_input("RR (호흡)", value=st.session_state.sim_input['rr'], step=2, key="rr_input")
-                    new_bt = st.number_input("BT (체온)", value=st.session_state.sim_input['bt'], step=0.1, format="%.1f", key="bt_input")
-                    new_mental = st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"], index=0, key="mental_input")
-
-                # 입력 즉시 Session State 업데이트 (Callback이 없어도 Rerun되면서 반영됨)
-                st.session_state.sim_input.update({
-                    'sbp': new_sbp, 'dbp': new_dbp, 'albumin': new_alb, 'meds': new_meds,
-                    'pr': new_pr, 'rr': new_rr, 'bt': new_bt, 'mental': new_mental
-                })
+                r3, r4 = st.columns(2)
+                st.number_input("PR (맥박)", value=st.session_state.sim_input['pr'], step=5, key="new_pr", on_change=update_sim)
+                st.number_input("RR (호흡)", value=st.session_state.sim_input['rr'], step=2, key="new_rr", on_change=update_sim)
+                
+                st.number_input("BT (체온)", value=st.session_state.sim_input['bt'], step=0.1, format="%.1f", key="new_bt", on_change=update_sim)
+                st.slider("Albumin (영양)", 1.0, 5.5, st.session_state.sim_input['albumin'], 0.1, key="new_alb", on_change=update_sim)
+                
+                st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"], index=0, key="new_mental", on_change=update_sim)
+                
+                # [여기!] 체크박스에 on_change 추가 -> 클릭 즉시 점수 반영됨
+                st.checkbox("💊 고위험 약물(수면제 등) 복용", value=st.session_state.sim_input['meds'], key="new_meds", on_change=update_sim)
 
         with c2:
             st.markdown("##### 📊 환자 상태 요약")
+            # 입력된 값들을 바로 보여줌
+            s_inp = st.session_state.sim_input
             st.markdown(f"""
             <div style="background-color:#263238; padding:15px; border-radius:8px; margin-bottom:15px;">
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; text-align:center;">
-                    <div><div style="color:#aaa; font-size:12px;">BP</div><div style="font-weight:bold; font-size:18px;">{new_sbp}/{new_dbp}</div></div>
-                    <div><div style="color:#aaa; font-size:12px;">PR</div><div style="font-weight:bold; font-size:18px;">{new_pr}</div></div>
-                    <div><div style="color:#aaa; font-size:12px;">RR</div><div style="font-weight:bold; font-size:18px;">{new_rr}</div></div>
-                    <div><div style="color:#aaa; font-size:12px;">BT</div><div style="font-weight:bold; font-size:18px;">{new_bt}</div></div>
+                    <div><div style="color:#aaa; font-size:12px;">BP</div><div style="font-weight:bold; font-size:18px;">{s_inp['sbp']}/{s_inp['dbp']}</div></div>
+                    <div><div style="color:#aaa; font-size:12px;">PR</div><div style="font-weight:bold; font-size:18px;">{s_inp['pr']}</div></div>
+                    <div><div style="color:#aaa; font-size:12px;">RR</div><div style="font-weight:bold; font-size:18px;">{s_inp['rr']}</div></div>
+                    <div><div style="color:#aaa; font-size:12px;">BT</div><div style="font-weight:bold; font-size:18px;">{s_inp['bt']}</div></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -396,7 +390,7 @@ with col_main:
         st.text_area("추가 기록", height=100)
         st.button("저장")
 
-# [NEW] 알람 (버튼 1개)
+# [NEW] 알람 (단순 확인 버튼)
 if fall_score >= 60 and not st.session_state.alarm_confirmed:
     factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
     
@@ -410,7 +404,7 @@ if fall_score >= 60 and not st.session_state.alarm_confirmed:
             <b>[감지된 주요 위험 요인]</b><br>
             • {factors_str}
         </div>
-        <a href="?action=confirm" target="_self" class="btn-confirm">
+        <a href="?confirm_alarm=true" target="_self" class="btn-confirm">
             확인 (Confirm)
         </a>
     </div>

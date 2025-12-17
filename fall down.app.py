@@ -31,7 +31,7 @@ st.markdown("""
     }
     .header-info-text { font-size: 1.1em; color: #eceff1; margin-right: 15px; }
 
-    /* 디지털 계기판 (가로 배치) */
+    /* 디지털 계기판 */
     .digital-monitor-container {
         background-color: #000000; border: 2px solid #455a64; border-radius: 8px;
         padding: 15px; margin-top: 15px; margin-bottom: 5px;
@@ -47,28 +47,49 @@ st.markdown("""
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
     .divider-line { width: 1px; height: 50px; background-color: #444; }
 
-    /* 알람 박스 */
+    /* 알람 박스 배경 (버튼 제외) */
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 350px;
+        position: fixed; bottom: 30px; right: 30px; width: 350px; height: 180px;
         background-color: #263238; border-left: 8px solid #ff5252;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
-        padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
+        padding: 20px; z-index: 9998; /* 버튼보다 아래 */
+        animation: slideIn 0.5s ease-out;
     }
     @keyframes slideIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
     
     .alert-title { color: #ff5252; font-weight: bold; font-size: 1.3em; margin-bottom: 10px; }
     .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.4; }
     .alert-factors { background-color: #3e2723; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
-    
-    .btn-confirm {
-        display: block; background-color: #d32f2f; color: white !important; text-align: center; padding: 10px; 
-        border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none !important;
+
+    /* [핵심 기술] Streamlit 버튼을 우측 하단으로 강제 이동시키는 CSS */
+    /* 특정 키를 가진 버튼 컨테이너를 타겟팅할 수 없으므로, '알람 확인' 텍스트를 가진 버튼을 찾거나
+       코드 맨 마지막에 위치한 버튼을 타겟팅합니다. */
+    div.stButton > button:first-child {
+       /* 기본 버튼 스타일 유지 */
     }
-    .btn-confirm:hover { background-color: #b71c1c; }
+    
+    /* 이 클래스는 파이썬 코드에서 컨테이너에 적용할 것입니다 */
+    .floating-button-container {
+        position: fixed;
+        bottom: 45px;
+        right: 50px;
+        z-index: 9999; /* 박스보다 위 */
+        width: 310px;
+    }
+    .floating-button-container button {
+        width: 100%;
+        background-color: #d32f2f; 
+        color: white; 
+        border: none;
+        font-weight: bold;
+    }
+    .floating-button-container button:hover {
+        background-color: #b71c1c;
+        color: white;
+    }
 
     /* 기타 UI */
     .note-entry { background-color: #2c3e50; padding: 15px; border-radius: 5px; border-left: 4px solid #0288d1; margin-bottom: 10px; }
-    .note-time { color: #81d4fa; font-weight: bold; margin-bottom: 5px; font-size: 0.9em; }
     .risk-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin: 2px; border: 1px solid #ff5252; color: #ff867c; }
     .legend-item { display: inline-block; padding: 2px 8px; margin-right: 5px; border-radius: 3px; font-size: 0.75em; font-weight: bold; color: white; text-align: center; }
     
@@ -101,28 +122,22 @@ def load_resources():
 res = load_resources()
 
 # --------------------------------------------------------------------------------
-# 4. 상태 초기화 (데이터 유지의 핵심!)
+# 4. 상태 초기화 (데이터 유지의 핵심)
 # --------------------------------------------------------------------------------
 if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
 
-# [핵심] 딕셔너리가 아닌 '개별 키'로 상태 관리 (위젯과 1:1 매핑을 위해 필수)
+# 시뮬레이션 변수 초기화 (키값 바인딩용)
 defaults = {
     'sim_sbp': 120, 'sim_dbp': 80, 'sim_pr': 80, 'sim_rr': 20, 
     'sim_bt': 36.5, 'sim_alb': 4.0, 'sim_crp': 0.5, 
     'sim_mental': '명료(Alert)', 'sim_meds': False
 }
-
 for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
-
-# 알람 확인 처리
-if "confirm_alarm" in st.query_params:
-    st.session_state.alarm_confirmed = True
-    st.query_params.clear()
 
 PATIENTS_BASE = [
     {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
@@ -135,16 +150,18 @@ PATIENTS_BASE = [
 # 5. 예측 및 보정 함수
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static):
-    # Session State 값을 직접 참조 (항상 최신 값)
-    sbp = st.session_state.sim_sbp
-    dbp = st.session_state.sim_dbp
-    pr = st.session_state.sim_pr
-    rr = st.session_state.sim_rr
-    bt = st.session_state.sim_bt
-    alb = st.session_state.sim_alb
-    crp = st.session_state.sim_crp
-    mental = st.session_state.sim_mental
-    meds = st.session_state.sim_meds
+    # Session State에서 현재 값들을 바로 가져옴 (가장 최신 값)
+    input_vals = {
+        'sbp': st.session_state.sim_sbp,
+        'dbp': st.session_state.sim_dbp,
+        'pr': st.session_state.sim_pr,
+        'rr': st.session_state.sim_rr,
+        'bt': st.session_state.sim_bt,
+        'albumin': st.session_state.sim_alb,
+        'crp': st.session_state.sim_crp,
+        'mental': st.session_state.sim_mental,
+        'meds': st.session_state.sim_meds
+    }
 
     # 1. AI 모델 예측
     base_score = 0
@@ -156,16 +173,16 @@ def calculate_risk_score(pt_static):
         
         input_data['나이'] = pt_static['age']
         input_data['성별'] = 1 if pt_static['gender'] == 'M' else 0
-        input_data['SBP'] = sbp
-        input_data['DBP'] = dbp
-        input_data['PR'] = pr
-        input_data['RR'] = rr
-        input_data['BT'] = bt
-        input_data['albumin'] = alb
-        input_data['crp'] = crp
+        input_data['SBP'] = input_vals['sbp']
+        input_data['DBP'] = input_vals['dbp']
+        input_data['PR'] = input_vals['pr']
+        input_data['RR'] = input_vals['rr']
+        input_data['BT'] = input_vals['bt']
+        input_data['albumin'] = input_vals['albumin']
+        input_data['crp'] = input_vals['crp']
         
         mental_map = {"명료(Alert)": "alert", "기면(Drowsy)": "verbal response", "혼미(Stupor)": "painful response"}
-        m_val = mental_map.get(mental, "alert")
+        m_val = mental_map.get(input_vals['mental'], "alert")
         if f"내원시 반응_{m_val}" in input_data: input_data[f"내원시 반응_{m_val}"] = 1
 
         try:
@@ -179,13 +196,12 @@ def calculate_risk_score(pt_static):
     # 2. 보정 로직 (가산점)
     calibration_score = 0
     
-    if alb < 3.0: calibration_score += 30
-    if meds: calibration_score += 30
+    if input_vals['albumin'] < 3.0: calibration_score += 30
+    if input_vals['meds']: calibration_score += 30
     if pt_static['age'] >= 70: calibration_score += 10
-    
-    if sbp < 90 or sbp > 180: calibration_score += 15
-    if pr > 100: calibration_score += 10
-    if bt > 37.5: calibration_score += 5
+    if input_vals['sbp'] < 90 or input_vals['sbp'] > 180: calibration_score += 15
+    if input_vals['pr'] > 100: calibration_score += 10
+    if input_vals['bt'] > 37.5: calibration_score += 5
 
     final_score = base_score + calibration_score
     return min(final_score, 99)
@@ -212,7 +228,7 @@ def show_risk_details(name, factors, current_score):
         with c3:
             st.markdown("##### ✅ 필수 간호 진술문")
             with st.container(border=True):
-                # Session State 값을 확인하여 체크 여부 결정
+                # 저장된 Session State 값 기반으로 체크 여부 결정
                 chk_rail = st.checkbox("침상 난간(Side Rail) 올림 확인", value=(current_score >= 40))
                 chk_med = st.checkbox("💊 수면제 투여 후 30분 관찰", value=st.session_state.sim_meds)
                 chk_nutri = st.checkbox("🥩 영양팀 협진 의뢰", value=(st.session_state.sim_alb < 3.0))
@@ -277,7 +293,7 @@ with col_sidebar:
         st.session_state.current_pt_idx = idx
         st.session_state.alarm_confirmed = False 
         
-        # 기본값으로 리셋
+        # 환자가 바뀌면 시뮬레이션 값 초기화
         st.session_state.sim_sbp = 120
         st.session_state.sim_dbp = 80
         st.session_state.sim_pr = 80
@@ -293,7 +309,7 @@ with col_sidebar:
     
     st.markdown("---")
     
-    # 점수 계산
+    # 점수 계산 (현재 Session State 값 사용)
     fall_score = calculate_risk_score(curr_pt_base)
     sore_score = 15
     
@@ -358,7 +374,7 @@ with col_main:
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
-                # [핵심] Widget Key를 Session State Key와 동일하게 설정 -> 자동 동기화 & 유지
+                # [핵심] key를 통해 Session State와 위젯을 1:1 바인딩 -> 데이터 유지 및 즉시 반영
                 r1, r2 = st.columns(2)
                 st.number_input("SBP (수축기)", step=10, key="sim_sbp")
                 st.number_input("DBP (이완기)", step=10, key="sim_dbp")
@@ -373,6 +389,7 @@ with col_main:
 
         with c2:
             st.markdown("##### 📊 환자 상태 요약")
+            # 입력값 즉시 확인
             st.markdown(f"""
             <div style="background-color:#263238; padding:15px; border-radius:8px; margin-bottom:15px;">
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; text-align:center;">
@@ -405,10 +422,11 @@ with col_main:
         st.text_area("추가 기록", height=100)
         st.button("저장")
 
-# [NEW] 알람 (단순 확인 버튼)
+# [NEW] 알람 및 1버튼 강제 위치 지정
 if fall_score >= 60 and not st.session_state.alarm_confirmed:
     factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
     
+    # 1. HTML로 박스(배경) 그리기
     st.markdown(f"""
     <div class="custom-alert-box">
         <div class="alert-title">🚨 낙상 고위험 감지! ({fall_score}점)</div>
@@ -419,11 +437,17 @@ if fall_score >= 60 and not st.session_state.alarm_confirmed:
             <b>[감지된 주요 위험 요인]</b><br>
             • {factors_str}
         </div>
-        <a href="?confirm_alarm=true" target="_self" class="btn-confirm">
-            확인 (Confirm)
-        </a>
-    </div>
+        </div>
+    <div class="floating-button-container">
     """, unsafe_allow_html=True)
+    
+    # 2. Native Streamlit Button 생성
+    if st.button("확인 (알람 끄기)", key="alarm_confirm_btn"):
+        st.session_state.alarm_confirmed = True
+        st.rerun()
+    
+    # 3. HTML 닫기
+    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 legends = [("수술전","#e57373"), ("수술중","#ba68c8"), ("검사후","#7986cb"), ("퇴원","#81c784"), ("신규오더","#ffb74d")]

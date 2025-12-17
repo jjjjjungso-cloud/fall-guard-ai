@@ -7,7 +7,7 @@ import numpy as np
 import altair as alt
 
 # --------------------------------------------------------------------------------
-# 1. 페이지 설정
+# 1. 페이지 설정 및 상태 관리
 # --------------------------------------------------------------------------------
 st.set_page_config(
     page_title="SNUH Ward EMR - AI System",
@@ -17,7 +17,11 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. 스타일 (CSS)
+# 2. (수정) 쿼리 파라미터 방식 제거: Streamlit 버튼으로 상태 유지
+# --------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------------
+# 3. 스타일 (CSS) - 알람 박스 디자인 수정됨
 # --------------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -47,28 +51,47 @@ st.markdown("""
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
     .divider-line { width: 1px; height: 50px; background-color: #444; }
 
-    /* 알람 박스 */
+    /* [수정] 알람 박스 디자인 개선 (높이 자동 조절) */
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 400px;
-        background-color: #263238; border-left: 8px solid #ff5252;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
-        padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
+        position: fixed; 
+        bottom: 30px; 
+        right: 30px; 
+        width: 380px;
+        height: auto; /* 높이 자동 조절 */
+        background-color: #263238; 
+        border-left: 8px solid #ff5252;
+        box-shadow: 0 6px 25px rgba(0,0,0,0.7); 
+        border-radius: 8px;
+        padding: 20px; 
+        z-index: 9999; 
+        animation: slideIn 0.5s ease-out;
+        font-family: 'Noto Sans KR', sans-serif;
     }
     @keyframes slideIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
     
-    .alert-title { color: #ff5252; font-weight: bold; font-size: 1.3em; margin-bottom: 10px; }
-    .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.4; }
-    .alert-factors { background-color: #3e2723; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
+    .alert-title { color: #ff5252; font-weight: bold; font-size: 1.4em; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+    .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.5; }
+    .alert-factors { background-color: #3e2723; padding: 12px; border-radius: 6px; margin-bottom: 20px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
     
-    .btn-confirm {
-        display: block; background-color: #d32f2f; color: white !important; text-align: center; padding: 10px; 
-        border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none !important;
+    /* HTML 버튼 스타일링 */
+    a.btn-confirm {
+        display: block; 
+        width: 100%;
+        background-color: #d32f2f; 
+        color: white !important; 
+        text-align: center; 
+        padding: 12px 0; 
+        border-radius: 6px; 
+        font-weight: bold; 
+        font-size: 1.1em;
+        text-decoration: none !important;
+        transition: background-color 0.3s;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
-    .btn-confirm:hover { background-color: #b71c1c; }
+    a.btn-confirm:hover { background-color: #b71c1c; transform: translateY(-1px); }
 
     /* 기타 UI */
     .note-entry { background-color: #2c3e50; padding: 15px; border-radius: 5px; border-left: 4px solid #0288d1; margin-bottom: 10px; }
-    .note-time { color: #81d4fa; font-weight: bold; margin-bottom: 5px; font-size: 0.9em; }
     .risk-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin: 2px; border: 1px solid #ff5252; color: #ff867c; }
     .legend-item { display: inline-block; padding: 2px 8px; margin-right: 5px; border-radius: 3px; font-size: 0.75em; font-weight: bold; color: white; text-align: center; }
     
@@ -77,11 +100,30 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 2px; }
     .stTabs [data-baseweb="tab"] { background-color: #263238; color: #b0bec5; border-radius: 4px 4px 0 0; }
     .stTabs [aria-selected="true"] { background-color: #0277bd; color: white; }
+
+/* (수정) Streamlit 버튼을 Confirm 버튼처럼 보이게 */
+div.stButton > button {
+    width: 100%;
+    background-color: #d32f2f;
+    color: white;
+    border: none;
+    padding: 12px 0;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 1.1em;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transition: background-color 0.3s, transform 0.2s;
+}
+div.stButton > button:hover {
+    background-color: #b71c1c;
+    transform: translateY(-1px);
+}
+
 </style>
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------------
-# 3. 리소스 로딩
+# 4. 리소스 로딩
 # --------------------------------------------------------------------------------
 @st.cache_resource
 def load_resources():
@@ -101,15 +143,26 @@ def load_resources():
 res = load_resources()
 
 # --------------------------------------------------------------------------------
-# 4. 상태 초기화
+# 5. 상태 초기화 (데이터 유지)
 # --------------------------------------------------------------------------------
 if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
+if 'last_detected_factors' not in st.session_state: st.session_state.last_detected_factors = []
+if 'last_fall_score' not in st.session_state: st.session_state.last_fall_score = None
+if 'last_confirmed_factors' not in st.session_state: st.session_state.last_confirmed_factors = []
+if 'last_confirmed_score' not in st.session_state: st.session_state.last_confirmed_score = None
 
-# [핵심] 시뮬레이션 변수 초기화 (최초 1회만 실행되도록 키 확인)
-# key 자체가 session_state에 저장되므로, 여기서 초기값을 잡아줍니다.
+def confirm_alarm():
+    """알람 확인 처리: 세션 상태를 유지한 채로 알람만 확인 처리합니다."""
+    st.session_state.alarm_confirmed = True
+    # 확인 당시 요인/점수 스냅샷 저장
+    st.session_state.last_confirmed_factors = st.session_state.get('last_detected_factors', [])
+    st.session_state.last_confirmed_score = st.session_state.get('last_fall_score', None)
+
+
+# 시뮬레이션 변수 초기화 (개별 키 사용)
 defaults = {
     'sim_sbp': 120, 'sim_dbp': 80, 'sim_pr': 80, 'sim_rr': 20, 
     'sim_bt': 36.5, 'sim_alb': 4.0, 'sim_crp': 0.5, 
@@ -119,11 +172,6 @@ for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-# 알람 확인 처리 (URL 쿼리)
-if "confirm_alarm" in st.query_params:
-    st.session_state.alarm_confirmed = True
-    st.query_params.clear()
-
 PATIENTS_BASE = [
     {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
     {"id": "87654321", "bed": "04-02", "name": "이영희", "gender": "F", "age": 65, "diag": "Stomach Cancer", "doc": "박위장", "nurse": "최간호"},
@@ -132,19 +180,21 @@ PATIENTS_BASE = [
 ]
 
 # --------------------------------------------------------------------------------
-# 5. 예측 및 보정 함수
+# 6. 예측 및 보정 함수
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static):
-    # [핵심] Session State의 최신 값을 바로 참조 (인자로 받지 않음)
-    sbp = st.session_state.sim_sbp
-    dbp = st.session_state.sim_dbp
-    pr = st.session_state.sim_pr
-    rr = st.session_state.sim_rr
-    bt = st.session_state.sim_bt
-    alb = st.session_state.sim_alb
-    crp = st.session_state.sim_crp
-    mental = st.session_state.sim_mental
-    meds = st.session_state.sim_meds
+    # Session State의 최신 값을 바로 가져옴
+    input_vals = {
+        'sbp': st.session_state.sim_sbp,
+        'dbp': st.session_state.sim_dbp,
+        'pr': st.session_state.sim_pr,
+        'rr': st.session_state.sim_rr,
+        'bt': st.session_state.sim_bt,
+        'albumin': st.session_state.sim_alb,
+        'crp': st.session_state.sim_crp,
+        'mental': st.session_state.sim_mental,
+        'meds': st.session_state.sim_meds
+    }
 
     # 1. AI 모델 예측
     base_score = 0
@@ -156,16 +206,16 @@ def calculate_risk_score(pt_static):
         
         input_data['나이'] = pt_static['age']
         input_data['성별'] = 1 if pt_static['gender'] == 'M' else 0
-        input_data['SBP'] = sbp
-        input_data['DBP'] = dbp
-        input_data['PR'] = pr
-        input_data['RR'] = rr
-        input_data['BT'] = bt
-        input_data['albumin'] = alb
-        input_data['crp'] = crp
+        input_data['SBP'] = input_vals['sbp']
+        input_data['DBP'] = input_vals['dbp']
+        input_data['PR'] = input_vals['pr']
+        input_data['RR'] = input_vals['rr']
+        input_data['BT'] = input_vals['bt']
+        input_data['albumin'] = input_vals['albumin']
+        input_data['crp'] = input_vals['crp']
         
         mental_map = {"명료(Alert)": "alert", "기면(Drowsy)": "verbal response", "혼미(Stupor)": "painful response"}
-        m_val = mental_map.get(mental, "alert")
+        m_val = mental_map.get(input_vals['mental'], "alert")
         if f"내원시 반응_{m_val}" in input_data: input_data[f"내원시 반응_{m_val}"] = 1
 
         try:
@@ -179,19 +229,19 @@ def calculate_risk_score(pt_static):
     # 2. 보정 로직 (가산점)
     calibration_score = 0
     
-    if alb < 3.0: calibration_score += 30
-    if meds: calibration_score += 30
+    if input_vals['albumin'] < 3.0: calibration_score += 30
+    if input_vals['meds']: calibration_score += 30
     if pt_static['age'] >= 70: calibration_score += 10
     
-    if sbp < 90 or sbp > 180: calibration_score += 15
-    if pr > 100: calibration_score += 10
-    if bt > 37.5: calibration_score += 5
+    if input_vals['sbp'] < 90 or input_vals['sbp'] > 180: calibration_score += 15
+    if input_vals['pr'] > 100: calibration_score += 10
+    if input_vals['bt'] > 37.5: calibration_score += 5
 
     final_score = base_score + calibration_score
     return min(final_score, 99)
 
 # --------------------------------------------------------------------------------
-# 6. 팝업창
+# 7. 팝업창
 # --------------------------------------------------------------------------------
 @st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
 def show_risk_details(name, factors, current_score):
@@ -212,7 +262,6 @@ def show_risk_details(name, factors, current_score):
         with c3:
             st.markdown("##### ✅ 필수 간호 진술문")
             with st.container(border=True):
-                # 저장된 Session State 값 기반으로 체크 여부 결정
                 chk_rail = st.checkbox("침상 난간(Side Rail) 올림 확인", value=(current_score >= 40))
                 chk_med = st.checkbox("💊 수면제 투여 후 30분 관찰", value=st.session_state.sim_meds)
                 chk_nutri = st.checkbox("🥩 영양팀 협진 의뢰", value=(st.session_state.sim_alb < 3.0))
@@ -241,7 +290,6 @@ def show_risk_details(name, factors, current_score):
             colors = []
             for feature in df_imp['feature']:
                 color = "#e0e0e0"
-                # Session State 값과 비교하여 하이라이트
                 if feature == "나이" and PATIENTS_BASE[st.session_state.current_pt_idx]['age'] >= 65: color = "#ff5252"
                 elif feature == "albumin" and st.session_state.sim_alb < 3.0: color = "#ff5252"
                 elif feature == "SBP" and (st.session_state.sim_sbp < 100 or st.session_state.sim_sbp > 160): color = "#ff5252"
@@ -272,12 +320,11 @@ with col_sidebar:
     st.markdown("### 🏥 재원 환자")
     idx = st.radio("환자 리스트", range(len(PATIENTS_BASE)), format_func=lambda i: f"[{PATIENTS_BASE[i]['bed']}] {PATIENTS_BASE[i]['name']}", label_visibility="collapsed")
     
-    # 환자 변경 시에만 값을 리셋
+    # 환자 변경 시 리셋
     if idx != st.session_state.current_pt_idx:
         st.session_state.current_pt_idx = idx
         st.session_state.alarm_confirmed = False 
         
-        # 기본값으로 리셋 (개별 키 사용)
         st.session_state.sim_sbp = 120
         st.session_state.sim_dbp = 80
         st.session_state.sim_pr = 80
@@ -297,7 +344,7 @@ with col_sidebar:
     fall_score = calculate_risk_score(curr_pt_base)
     sore_score = 15
     
-    # 점수가 60 미만으로 떨어지면 알람 상태 리셋
+    # 점수가 60 미만으로 떨어지면 알람 상태 리셋 (다시 위험해지면 뜨게)
     if fall_score < 60:
         st.session_state.alarm_confirmed = False
 
@@ -358,7 +405,7 @@ with col_main:
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
-                # [핵심] 위젯 key를 Session State와 직접 연결 (데이터 영구 유지)
+                # [핵심] 위젯의 key를 session state와 1:1 매핑 -> 데이터 유지 및 즉시 반영
                 r1, r2 = st.columns(2)
                 st.number_input("SBP (수축기)", step=10, key="sim_sbp")
                 st.number_input("DBP (이완기)", step=10, key="sim_dbp")
@@ -405,7 +452,7 @@ with col_main:
         st.text_area("추가 기록", height=100)
         st.button("저장")
 
-# [NEW] 알람 (단순 확인 버튼)
+# [NEW] 알람 (버튼을 HTML 안에 넣어서 내용물과 함께 움직이게 함)
 if fall_score >= 60 and not st.session_state.alarm_confirmed:
     factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
     
@@ -419,11 +466,13 @@ if fall_score >= 60 and not st.session_state.alarm_confirmed:
             <b>[감지된 주요 위험 요인]</b><br>
             • {factors_str}
         </div>
-        <a href="?confirm_alarm=true" target="_self" class="btn-confirm">
-            확인 (Confirm)
-        </a>
     </div>
     """, unsafe_allow_html=True)
+
+    # ✅ (수정) 링크 대신 Streamlit 버튼 사용: 클릭해도 상태가 리셋되지 않음
+    if st.button("확인 (Confirm)", key="confirm_alarm_btn", use_container_width=True):
+        confirm_alarm()
+        st.rerun()
 
 st.markdown("---")
 legends = [("수술전","#e57373"), ("수술중","#ba68c8"), ("검사후","#7986cb"), ("퇴원","#81c784"), ("신규오더","#ffb74d")]

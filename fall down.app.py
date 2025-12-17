@@ -17,22 +17,23 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. 데이터 초기화 및 콜백 함수 (이 부분이 핵심 수정!)
+# 2. 데이터 초기화 및 상태 관리 (가장 중요!)
 # --------------------------------------------------------------------------------
 if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
 
-# [핵심] 시뮬레이션 데이터 초기화
+# [핵심] 시뮬레이션 데이터 영구 저장소
 if 'sim_input' not in st.session_state:
     st.session_state.sim_input = {
         'age': 78, 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
         'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
     }
 
-# [핵심] 값이 변경되자마자 Session State를 업데이트하는 콜백 함수
+# [핵심] 입력값이 변경될 때마다 Session State를 갱신하는 콜백 함수
 def update_sim():
+    # 위젯의 key값을 통해 session_state 업데이트
     st.session_state.sim_input['sbp'] = st.session_state.new_sbp
     st.session_state.sim_input['dbp'] = st.session_state.new_dbp
     st.session_state.sim_input['pr'] = st.session_state.new_pr
@@ -41,6 +42,9 @@ def update_sim():
     st.session_state.sim_input['albumin'] = st.session_state.new_alb
     st.session_state.sim_input['mental'] = st.session_state.new_mental
     st.session_state.sim_input['meds'] = st.session_state.new_meds
+    
+    # 값이 바뀌면 알람 상태를 초기화 (다시 알람이 울릴 수 있게)
+    st.session_state.alarm_confirmed = False
 
 # 알람 확인 (단순 닫기)
 if "confirm_alarm" in st.query_params:
@@ -84,7 +88,7 @@ st.markdown("""
     .divider-line { width: 1px; height: 50px; background-color: #444; }
 
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 350px;
+        position: fixed; bottom: 30px; right: 30px; width: 400px;
         background-color: #263238; border-left: 8px solid #ff5252;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
         padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
@@ -138,7 +142,6 @@ res = load_resources()
 # 5. 예측 및 보정 함수
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static, input_vals):
-    # 1. AI 모델 예측
     base_score = 0
     if res and 'model' in res:
         model = res['model']
@@ -168,13 +171,11 @@ def calculate_risk_score(pt_static, input_vals):
         except:
             base_score = 10 
 
-    # 2. 보정 로직 (즉시 반영됨)
+    # 보정 로직
     calibration_score = 0
-    
     if input_vals['albumin'] < 3.0: calibration_score += 30
     if input_vals['meds']: calibration_score += 30
     if pt_static['age'] >= 70: calibration_score += 10
-    
     if input_vals['sbp'] < 90 or input_vals['sbp'] > 180: calibration_score += 15
     if input_vals['pr'] > 100: calibration_score += 10
     if input_vals['bt'] > 37.5: calibration_score += 5
@@ -265,7 +266,7 @@ with col_sidebar:
         st.session_state.current_pt_idx = idx
         st.session_state.alarm_confirmed = False 
         
-        # 환자가 바뀌면 시뮬레이션 값 리셋
+        # 환자가 바뀌면 시뮬레이션 값도 해당 환자 정보로 초기화
         st.session_state.sim_input = {
             'age': PATIENTS_BASE[idx]['age'], 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
             'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
@@ -276,7 +277,7 @@ with col_sidebar:
     
     st.markdown("---")
     
-    # 점수 계산 (항상 최신 Sim Input 사용)
+    # 점수 계산 (항상 Session State의 최신 값 사용)
     fall_score = calculate_risk_score(curr_pt_base, st.session_state.sim_input)
     sore_score = 15
     
@@ -302,6 +303,7 @@ with col_sidebar:
     </div>
     """, unsafe_allow_html=True)
     
+    # 위험 요인 텍스트
     detected_factors = []
     inp = st.session_state.sim_input
     if inp['age'] >= 65: detected_factors.append("고령")
@@ -337,26 +339,24 @@ with col_main:
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
-                # [중요] on_change=update_sim 을 추가하여 즉시 반영
+                # [핵심] on_change 콜백 사용 -> 입력 즉시 반영
                 r1, r2 = st.columns(2)
                 st.number_input("SBP (수축기)", value=st.session_state.sim_input['sbp'], step=10, key="new_sbp", on_change=update_sim)
                 st.number_input("DBP (이완기)", value=st.session_state.sim_input['dbp'], step=10, key="new_dbp", on_change=update_sim)
-                
                 r3, r4 = st.columns(2)
                 st.number_input("PR (맥박)", value=st.session_state.sim_input['pr'], step=5, key="new_pr", on_change=update_sim)
                 st.number_input("RR (호흡)", value=st.session_state.sim_input['rr'], step=2, key="new_rr", on_change=update_sim)
-                
                 st.number_input("BT (체온)", value=st.session_state.sim_input['bt'], step=0.1, format="%.1f", key="new_bt", on_change=update_sim)
-                st.slider("Albumin (영양)", 1.0, 5.5, st.session_state.sim_input['albumin'], 0.1, key="new_alb", on_change=update_sim)
                 
+                st.slider("Albumin (영양)", 1.0, 5.5, st.session_state.sim_input['albumin'], 0.1, key="new_alb", on_change=update_sim)
                 st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"], index=0, key="new_mental", on_change=update_sim)
                 
-                # [여기!] 체크박스에 on_change 추가 -> 클릭 즉시 점수 반영됨
+                # 체크박스도 on_change 적용
                 st.checkbox("💊 고위험 약물(수면제 등) 복용", value=st.session_state.sim_input['meds'], key="new_meds", on_change=update_sim)
 
         with c2:
             st.markdown("##### 📊 환자 상태 요약")
-            # 입력된 값들을 바로 보여줌
+            # 현재 session state 값을 바로 표시
             s_inp = st.session_state.sim_input
             st.markdown(f"""
             <div style="background-color:#263238; padding:15px; border-radius:8px; margin-bottom:15px;">

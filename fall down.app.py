@@ -31,40 +31,25 @@ st.markdown("""
     }
     .header-info-text { font-size: 1.1em; color: #eceff1; margin-right: 15px; }
 
-    /* 디지털 계기판 (가로 배치 강제 적용) */
+    /* 디지털 계기판 (가로 배치) */
     .digital-monitor-container {
         background-color: #000000; border: 2px solid #455a64; border-radius: 8px;
         padding: 15px; margin-top: 15px; margin-bottom: 5px;
         box-shadow: inset 0 0 20px rgba(0,0,0,0.9); transition: border 0.3s;
-        
-        /* Flexbox를 사용하여 가로 정렬 */
-        display: flex !important; 
-        flex-direction: row !important;
-        justify-content: space-around !important; 
-        align-items: center !important;
+        display: flex !important; flex-direction: row !important;
+        justify-content: space-around !important; align-items: center !important;
     }
-    .score-box { 
-        text-align: center; 
-        width: 45%; 
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-    }
-    .divider-line { 
-        width: 1px; height: 50px; background-color: #444; 
-    }
-
-    /* 알람 점멸 애니메이션 */
     @keyframes blink { 50% { border-color: #ff5252; box-shadow: 0 0 15px #ff5252; } }
     .alarm-active { animation: blink 1s infinite; border: 2px solid #ff5252 !important; }
 
-    .digital-number {
-        font-family: 'Consolas', monospace; font-size: 36px; font-weight: 900; line-height: 1.0;
-        text-shadow: 0 0 10px rgba(255,255,255,0.4); margin-top: 5px;
-    }
+    .score-box { text-align: center; width: 45%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .digital-number { font-family: 'Consolas', monospace; font-size: 36px; font-weight: 900; line-height: 1.0; text-shadow: 0 0 10px rgba(255,255,255,0.4); margin-top: 5px; }
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
+    .divider-line { width: 1px; height: 50px; background-color: #444; }
 
-    /* 알람 박스 (버튼 1개) */
+    /* 알람 박스 */
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 400px;
+        position: fixed; bottom: 30px; right: 30px; width: 350px;
         background-color: #263238; border-left: 8px solid #ff5252;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
         padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
@@ -75,7 +60,6 @@ st.markdown("""
     .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.4; }
     .alert-factors { background-color: #3e2723; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
     
-    /* 버튼 스타일 */
     .btn-confirm {
         display: block; background-color: #d32f2f; color: white !important; text-align: center; padding: 10px; 
         border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none !important;
@@ -127,20 +111,20 @@ PATIENTS_BASE = [
 ]
 
 # --------------------------------------------------------------------------------
-# 5. 상태 초기화 (데이터 유지의 핵심)
+# 5. 상태 초기화 및 데이터 유지 설정
 # --------------------------------------------------------------------------------
 if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
 
-# 알람 확인 (단순 닫기)
+# 알람 확인 (URL 쿼리 처리)
 if "confirm_alarm" in st.query_params:
     st.session_state.alarm_confirmed = True
     st.query_params.clear()
 
-# [핵심] 시뮬레이션 변수들을 Session State에 초기화 (딕셔너리가 아닌 개별 키 사용 권장)
-# 이렇게 해야 위젯(Input)과 값이 1:1로 매핑되어 "즉시 반영"되고 "유지"됩니다.
+# [핵심] 시뮬레이션 변수들을 Session State에 초기화 (개별 키 사용)
+# 위젯과 1:1로 매핑되어 "즉시 반영"되고 "유지"됩니다.
 defaults = {
     'sim_sbp': 120, 'sim_dbp': 80, 'sim_pr': 80, 'sim_rr': 20, 
     'sim_bt': 36.5, 'sim_alb': 4.0, 'sim_crp': 0.5, 
@@ -381,7 +365,7 @@ with col_main:
         with c1:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
-                # [핵심] key를 설정하여 Session State와 위젯을 1:1로 묶음 -> 값 자동 유지 & 즉시 반영
+                # [핵심] 위젯 값을 직접 Session State Key와 연결 (on_change 불필요, 자동 동기화)
                 r1, r2 = st.columns(2)
                 st.number_input("SBP (수축기)", step=10, key="sim_sbp")
                 st.number_input("DBP (이완기)", step=10, key="sim_dbp")

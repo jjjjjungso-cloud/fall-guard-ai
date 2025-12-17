@@ -17,20 +17,7 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------------
-# 2. 쿼리 파라미터 처리 (알람 버튼 클릭 감지)
-# --------------------------------------------------------------------------------
-if "action" in st.query_params:
-    action = st.query_params["action"]
-    if action == "confirm":
-        st.session_state.alarm_confirmed = True
-    elif action == "detail":
-        st.session_state.alarm_confirmed = True
-        st.session_state.show_popup = True # 팝업 열기 트리거
-    
-    st.query_params.clear()
-
-# --------------------------------------------------------------------------------
-# 3. 스타일 (CSS) - 가로 계기판, 2버튼 알람
+# 2. 스타일 (CSS) - 알람 1버튼, 가로 계기판
 # --------------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -75,9 +62,9 @@ st.markdown("""
     }
     .monitor-label { color: #90a4ae; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
 
-    /* [NEW] 커스텀 알람 박스 (버튼 2개용 스타일) */
+    /* [NEW] 커스텀 알람 박스 (버튼 1개용 스타일) */
     .custom-alert-box {
-        position: fixed; bottom: 30px; right: 30px; width: 420px;
+        position: fixed; bottom: 30px; right: 30px; width: 400px;
         background-color: #263238; border-left: 8px solid #ff5252;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-radius: 4px;
         padding: 20px; z-index: 9999; animation: slideIn 0.5s ease-out;
@@ -88,24 +75,12 @@ st.markdown("""
     .alert-content { color: #eceff1; font-size: 1.0em; margin-bottom: 15px; line-height: 1.4; }
     .alert-factors { background-color: #3e2723; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #ffcdd2; font-size: 0.95em; border: 1px solid #ff5252; }
     
-    /* 버튼 컨테이너 (가로 배열) */
-    .alert-btn-container { 
-        display: flex; gap: 10px; width: 100%;
-    }
-    
     /* 버튼 스타일 (a태그) */
     .btn-confirm {
-        flex: 1; background-color: #546e7a; color: white !important; text-align: center; padding: 10px; 
+        display: block; background-color: #d32f2f; color: white !important; text-align: center; padding: 10px; 
         border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none !important;
-        display: block;
     }
-    .btn-detail {
-        flex: 1.5; background-color: #d32f2f; color: white !important; text-align: center; padding: 10px; 
-        border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none !important;
-        display: block;
-    }
-    .btn-confirm:hover { background-color: #78909c; }
-    .btn-detail:hover { background-color: #b71c1c; }
+    .btn-confirm:hover { background-color: #b71c1c; }
 
     /* 기타 UI */
     .note-entry { background-color: #2c3e50; padding: 15px; border-radius: 5px; border-left: 4px solid #0288d1; margin-bottom: 10px; }
@@ -122,7 +97,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------------
-# 4. 리소스 로딩 (모델 & 데이터)
+# 3. 리소스 로딩
 # --------------------------------------------------------------------------------
 @st.cache_resource
 def load_resources():
@@ -142,7 +117,7 @@ def load_resources():
 res = load_resources()
 
 # --------------------------------------------------------------------------------
-# 5. 예측 및 보정 함수
+# 4. 예측 및 보정 함수 (수정됨!)
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static, input_vals):
     # 1. AI 모델 예측
@@ -200,13 +175,17 @@ def calculate_risk_score(pt_static, input_vals):
     return min(final_score, 99)
 
 # --------------------------------------------------------------------------------
-# 6. 데이터 초기화
+# 5. 데이터 초기화
 # --------------------------------------------------------------------------------
 if 'nursing_notes' not in st.session_state:
     st.session_state.nursing_notes = [{"time": "2025-12-12 08:00", "writer": "김분당", "content": "활력징후 측정함. 특이사항 없음."}]
 if 'current_pt_idx' not in st.session_state: st.session_state.current_pt_idx = 0
 if 'alarm_confirmed' not in st.session_state: st.session_state.alarm_confirmed = False
-if 'show_popup' not in st.session_state: st.session_state.show_popup = False 
+
+# 알람 확인 (단순 닫기)
+if "confirm_alarm" in st.query_params:
+    st.session_state.alarm_confirmed = True
+    st.query_params.clear()
 
 PATIENTS_BASE = [
     {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
@@ -216,7 +195,7 @@ PATIENTS_BASE = [
 ]
 
 # --------------------------------------------------------------------------------
-# 7. 팝업창 (상세 분석)
+# 6. 팝업창
 # --------------------------------------------------------------------------------
 @st.dialog("낙상/욕창 위험도 정밀 분석", width="large")
 def show_risk_details(name, factors, current_score, input_vals):
@@ -282,14 +261,12 @@ def show_risk_details(name, factors, current_score, input_vals):
             st.info("중요도 데이터가 없습니다.")
 
 # --------------------------------------------------------------------------------
-# 8. 메인 레이아웃 구성
+# 7. 메인 레이아웃 구성
 # --------------------------------------------------------------------------------
 col_sidebar, col_main = st.columns([2, 8])
 curr_pt_base = PATIENTS_BASE[st.session_state.current_pt_idx]
 
-# ==============================================================================
-# [좌측 패널] 환자 리스트 + 결과 계기판
-# ==============================================================================
+# [좌측 패널]
 with col_sidebar:
     st.selectbox("근무 DUTY", ["Day", "Evening", "Night"])
     st.divider()
@@ -304,18 +281,15 @@ with col_sidebar:
     
     st.markdown("---")
     
-    # 세션값 초기화
     if 'sim_input' not in st.session_state:
         st.session_state.sim_input = {
             'age': curr_pt_base['age'], 'sbp': 120, 'dbp': 80, 'pr': 80, 'rr': 20, 
             'bt': 36.5, 'albumin': 4.0, 'crp': 0.5, 'mental': '명료(Alert)', 'meds': False
         }
     
-    # 점수 계산
     fall_score = calculate_risk_score(curr_pt_base, st.session_state.sim_input)
     sore_score = 15
     
-    # 계기판 색상
     f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
     s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
     
@@ -338,14 +312,10 @@ with col_sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # 위험 요인 텍스트 (알람 팝업 및 상세 버튼용)
     detected_factors = []
     inp = st.session_state.sim_input
     if inp['age'] >= 65: detected_factors.append("고령")
-    
-    # [수정 적용] 알부민 로직: 3.0 미만이면 무조건 표시
     if inp['albumin'] < 3.0: detected_factors.append("알부민 저하")
-    
     if inp['meds']: detected_factors.append("고위험 약물")
     if inp['sbp'] < 100: detected_factors.append("저혈압")
     if inp['pr'] > 100: detected_factors.append("빈맥")
@@ -353,15 +323,9 @@ with col_sidebar:
     if st.button("🔍 상세 분석 및 중재 기록 열기", type="primary", use_container_width=True):
         show_risk_details(curr_pt_base['name'], detected_factors, fall_score, inp)
 
-    # 2번 버튼(상세 분석) 클릭 시 팝업 열기
-    if st.session_state.show_popup:
-        show_risk_details(curr_pt_base['name'], detected_factors, fall_score, inp)
-        st.session_state.show_popup = False 
-
-# ==============================================================================
-# [우측 메인 패널] 시뮬레이션 및 데이터
-# ==============================================================================
+# [우측 메인 패널]
 with col_main:
+    # [수정 적용] 나이 표출 추가
     st.markdown(f"""
     <div class="header-container">
         <div style="display:flex; align-items:center; justify-content:space-between;">
@@ -436,7 +400,7 @@ with col_main:
         st.text_area("추가 기록", height=100)
         st.button("저장")
 
-# [NEW] 알람 (2 버튼 선택)
+# [NEW] 알람 (단순 확인 버튼)
 if fall_score >= 60 and not st.session_state.alarm_confirmed:
     factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
     
@@ -450,11 +414,9 @@ if fall_score >= 60 and not st.session_state.alarm_confirmed:
             <b>[감지된 주요 위험 요인]</b><br>
             • {factors_str}
         </div>
-        
-        <div class="alert-btn-container">
-            <a href="?action=confirm" target="_self" class="btn-confirm">확인 (닫기)</a>
-            <a href="?action=detail" target="_self" class="btn-detail">상세 분석 및 기록</a>
-        </div>
+        <a href="?confirm_alarm=true" target="_self" class="btn-confirm">
+            확인 (Confirm)
+        </a>
     </div>
     """, unsafe_allow_html=True)
 

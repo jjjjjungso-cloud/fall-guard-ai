@@ -471,6 +471,38 @@ with col_main:
             st.markdown("##### ⚡ 실시간 데이터 입력 (Simulation)")
             with st.container(border=True):
                 # [핵심] 위젯의 key를 session state와 1:1 매핑 -> 데이터 유지 및 즉시 반영
+
+                # ------------------------------
+                # 예시 환자 빠른 세팅 (저/중/고 위험군 데모용)
+                # ------------------------------
+                EXAMPLE_CASES = {
+                    "저위험 A (정상)": {
+                        "sim_sbp": 120, "sim_dbp": 78, "sim_pr": 78, "sim_rr": 18,
+                        "sim_bt": 36.6, "sim_alb": 4.1, "sim_crp": 0.3,
+                        "sim_severity": 2, "sim_reaction": "alert",
+                    },
+                    "저위험 B (고령)": {
+                        "sim_sbp": 130, "sim_dbp": 82, "sim_pr": 76, "sim_rr": 18,
+                        "sim_bt": 36.7, "sim_alb": 3.8, "sim_crp": 0.8,
+                        "sim_severity": 2, "sim_reaction": "alert",
+                    },
+                    "중위험 (관찰군)": {
+                        "sim_sbp": 115, "sim_dbp": 75, "sim_pr": 88, "sim_rr": 20,
+                        "sim_bt": 37.2, "sim_alb": 3.0, "sim_crp": 4.0,
+                        "sim_severity": 3, "sim_reaction": "alert",
+                    },
+                    "고위험 Top20 (알람)": {
+                        "sim_sbp": 110, "sim_dbp": 70, "sim_pr": 96, "sim_rr": 22,
+                        "sim_bt": 37.6, "sim_alb": 2.6, "sim_crp": 6.0,
+                        "sim_severity": 3, "sim_reaction": "verbal",
+                    },
+                }
+
+                demo_case = st.selectbox("📌 예시 환자 빠른 세팅", list(EXAMPLE_CASES.keys()))
+                if st.button("예시 환자 값 적용", use_container_width=True):
+                    for k, v in EXAMPLE_CASES[demo_case].items():
+                        st.session_state[k] = v
+                    st.success(f"'{demo_case}' 값이 적용되었습니다.")
                 r1, r2 = st.columns(2)
                 st.number_input("SBP (수축기)", step=10, key="sim_sbp")
                 st.number_input("DBP (이완기)", step=10, key="sim_dbp")

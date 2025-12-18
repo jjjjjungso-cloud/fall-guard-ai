@@ -4,6 +4,7 @@ import datetime
 import time
 import joblib
 import numpy as np
+import json
 import altair as alt
 
 # --------------------------------------------------------------------------------
@@ -127,16 +128,34 @@ div.stButton > button:hover {
 # --------------------------------------------------------------------------------
 @st.cache_resource
 def load_resources():
+    """새 cutoff 모델 아티팩트 로딩 (모델 + schema + train 점수 기준 cutoff)."""
     resources = {}
     try:
-        resources['model'] = joblib.load('rf_fall_model.joblib')
-        df_cols = pd.read_csv('rf_model_feature_columns.csv')
-        resources['features'] = df_cols['feature'].tolist()
-        try:
-            resources['importance'] = pd.read_csv('rf_feature_importance_top10.csv')
-        except:
-            resources['importance'] = None
-    except Exception as e:
+        # 1) 모델
+        resources['model'] = joblib.load('risk_score_model.joblib')
+
+        # 2) schema
+        with open('dashboard_schema.json', 'r', encoding='utf-8') as f:
+            schema = json.load(f)
+        resources['schema'] = schema
+
+        # 3) train score reference (cutoff)
+        ref = np.load('train_score_ref.npz', allow_pickle=True)
+        scores_sorted = ref.get('train_scores_sorted', None)
+        if scores_sorted is None:
+            raise ValueError("train_score_ref.npz 안에 'train_scores_sorted'가 없습니다.")
+        scores_sorted = np.array(scores_sorted).astype(float)
+
+        cut20 = ref.get('cutoff_top20', None)
+        cut40 = ref.get('cutoff_top40', None)
+        resources['cutoff_top20'] = float(np.quantile(scores_sorted, 0.80)) if cut20 is None else float(cut20)
+        resources['cutoff_top40'] = float(np.quantile(scores_sorted, 0.60)) if cut40 is None else float(cut40)
+
+        # schema 구성요소
+        resources['raw_cols'] = schema.get('raw_input_cols', [])
+        resources['category_options'] = schema.get('category_options', {})
+        resources['gender_mapping'] = schema.get('gender_mapping', {'M': 1, 'F': 0})
+    except Exception:
         return None
     return resources
 
@@ -166,7 +185,7 @@ def confirm_alarm():
 defaults = {
     'sim_sbp': 120, 'sim_dbp': 80, 'sim_pr': 80, 'sim_rr': 20, 
     'sim_bt': 36.5, 'sim_alb': 4.0, 'sim_crp': 0.5, 
-    'sim_mental': '명료(Alert)', 'sim_meds': False
+    'sim_mental': '명료(Alert)', 'sim_meds': False, 'sim_severity': 3, 'sim_reaction': 'alert'
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -183,62 +202,65 @@ PATIENTS_BASE = [
 # 6. 예측 및 보정 함수
 # --------------------------------------------------------------------------------
 def calculate_risk_score(pt_static):
-    # Session State의 최신 값을 바로 가져옴
-    input_vals = {
-        'sbp': st.session_state.sim_sbp,
-        'dbp': st.session_state.sim_dbp,
-        'pr': st.session_state.sim_pr,
-        'rr': st.session_state.sim_rr,
-        'bt': st.session_state.sim_bt,
-        'albumin': st.session_state.sim_alb,
-        'crp': st.session_state.sim_crp,
-        'mental': st.session_state.sim_mental,
-        'meds': st.session_state.sim_meds
+    """Flow3: 보정/가중치 제거. 모델 predict_proba 점수를 그대로 사용하고,
+    train_score_ref.npz 기반 cutoff로 고/중/저 위험군 판정.
+    반환값은 (표시용 점수 0~100, raw_score 0~1, risk_group) 입니다.
+    """
+    # 기본값
+    raw_score = 0.0
+    risk_group = "저위험"
+
+    # 입력값 구성 (11개 raw feature)
+    inputs = {
+        "성별": pt_static.get("gender", "M"),
+        "나이": float(pt_static.get("age", np.nan)),
+        "중증도분류": float(st.session_state.get("sim_severity", np.nan)),
+        "SBP": float(st.session_state.get("sim_sbp", np.nan)),
+        "DBP": float(st.session_state.get("sim_dbp", np.nan)),
+        "RR": float(st.session_state.get("sim_rr", np.nan)),
+        "PR": float(st.session_state.get("sim_pr", np.nan)),
+        "BT": float(st.session_state.get("sim_bt", np.nan)),
+        "내원시 반응": (np.nan if str(st.session_state.get("sim_reaction", "")).strip().lower() in ["", "nan", "none"] else str(st.session_state.get("sim_reaction", "")).strip()),
+        "albumin": float(st.session_state.get("sim_alb", np.nan)),
+        "crp": float(st.session_state.get("sim_crp", np.nan)),
     }
 
-    # 1. AI 모델 예측
-    base_score = 0
-    if res and 'model' in res:
+    # 성별 mapping (schema)
+    if res and 'gender_mapping' in res:
+        gm = res.get('gender_mapping', {'M': 1, 'F': 0})
+        inputs["성별"] = gm.get(str(inputs["성별"]).upper(), np.nan)
+
+    try:
         model = res['model']
-        feature_cols = res['features']
-        
-        input_data = {col: 0 for col in feature_cols}
-        
-        input_data['나이'] = pt_static['age']
-        input_data['성별'] = 1 if pt_static['gender'] == 'M' else 0
-        input_data['SBP'] = input_vals['sbp']
-        input_data['DBP'] = input_vals['dbp']
-        input_data['PR'] = input_vals['pr']
-        input_data['RR'] = input_vals['rr']
-        input_data['BT'] = input_vals['bt']
-        input_data['albumin'] = input_vals['albumin']
-        input_data['crp'] = input_vals['crp']
-        
-        mental_map = {"명료(Alert)": "alert", "기면(Drowsy)": "verbal response", "혼미(Stupor)": "painful response"}
-        m_val = mental_map.get(input_vals['mental'], "alert")
-        if f"내원시 반응_{m_val}" in input_data: input_data[f"내원시 반응_{m_val}"] = 1
+        raw_cols = res['raw_cols']
+        X_input = pd.DataFrame([inputs], columns=raw_cols)
 
-        try:
-            input_df = pd.DataFrame([input_data])
-            input_df = input_df[feature_cols]
-            prob = model.predict_proba(input_df)[0][1]
-            base_score = int(prob * 100)
-        except:
-            base_score = 10 
+        raw_score = float(model.predict_proba(X_input)[0][1])
 
-    # 2. 보정 로직 (가산점)
-    calibration_score = 0
-    
-    if input_vals['albumin'] < 3.0: calibration_score += 30
-    if input_vals['meds']: calibration_score += 30
-    if pt_static['age'] >= 70: calibration_score += 10
-    
-    if input_vals['sbp'] < 90 or input_vals['sbp'] > 180: calibration_score += 15
-    if input_vals['pr'] > 100: calibration_score += 10
-    if input_vals['bt'] > 37.5: calibration_score += 5
+        cut20 = float(res.get('cutoff_top20', 1.0))
+        cut40 = float(res.get('cutoff_top40', 1.0))
 
-    final_score = base_score + calibration_score
-    return min(final_score, 99)
+        if raw_score >= cut20:
+            risk_group = "고위험"
+        elif raw_score >= cut40:
+            risk_group = "중위험"
+        else:
+            risk_group = "저위험"
+
+    except Exception:
+        raw_score = 0.0
+        risk_group = "저위험"
+
+    # 표시용(0~100): 확률이 아니라 상대 점수 표시(그대로 스케일)
+    display_score = int(round(raw_score * 100))
+    display_score = max(0, min(display_score, 99))
+
+    # 세션에 저장(알람/확인 스냅샷용)
+    st.session_state.last_fall_score = display_score
+    st.session_state.last_fall_score_raw = raw_score
+    st.session_state.last_risk_group = risk_group
+
+    return display_score, raw_score, risk_group
 
 # --------------------------------------------------------------------------------
 # 7. 팝업창
@@ -334,6 +356,8 @@ with col_sidebar:
         st.session_state.sim_crp = 0.5
         st.session_state.sim_mental = '명료(Alert)'
         st.session_state.sim_meds = False
+        st.session_state.sim_severity = 3
+        st.session_state.sim_reaction = 'alert'
         st.rerun()
     
     curr_pt_base = PATIENTS_BASE[idx]
@@ -341,18 +365,19 @@ with col_sidebar:
     st.markdown("---")
     
     # 점수 계산
-    fall_score = calculate_risk_score(curr_pt_base)
+    fall_score, fall_score_raw, fall_group = calculate_risk_score(curr_pt_base)
     sore_score = 15
     
     # 점수가 60 미만으로 떨어지면 알람 상태 리셋 (다시 위험해지면 뜨게)
-    if fall_score < 60:
+    if res and (fall_score_raw < float(res.get('cutoff_top20', 1.0))):
         st.session_state.alarm_confirmed = False
 
-    f_color = "#ff5252" if fall_score >= 60 else ("#ffca28" if fall_score >= 30 else "#00e5ff")
+        f_color = "#ff5252" if fall_group == "고위험" else ("#ffca28" if fall_group == "중위험" else "#00e5ff")
     s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
     
     alarm_class = ""
-    if fall_score >= 60 and not st.session_state.alarm_confirmed:
+    if res and (fall_score_raw >= float(res.get('cutoff_top20', 1.0))) and not st.session_state.alarm_confirmed:
+    # ✅ 알람 트리거: Top20(상위 20%) 기준
         alarm_class = "alarm-active"
 
     # 가로형 계기판
@@ -370,17 +395,57 @@ with col_sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # 위험 요인 텍스트
+    # --------------------------------------------------------------------------------
+# (Flow 5 - A안) 감지된 위험 요인: 규칙 기반 태그 유지 (모델과 독립)
+#  - PoC 단계에서 가장 안정적: 모델 변경/재학습과 무관하게 UI는 동일하게 동작
+# --------------------------------------------------------------------------------
     detected_factors = []
-    if curr_pt_base['age'] >= 65: detected_factors.append("고령")
-    if st.session_state.sim_alb < 3.0: detected_factors.append("알부민 저하")
-    if st.session_state.sim_meds: detected_factors.append("고위험 약물")
-    if st.session_state.sim_sbp < 100: detected_factors.append("저혈압")
-    if st.session_state.sim_pr > 100: detected_factors.append("빈맥")
-    
+
+    # 1) 고령
+    if curr_pt_base['age'] >= 65:
+        detected_factors.append("고령")
+
+    # 2) 검사/활력징후 기반 (입력값 기반)
+    if st.session_state.sim_alb < 3.0:
+        detected_factors.append("알부민 저하")
+
+    # CRP 상승: 기관/데이터 단위에 따라 컷은 조정 가능 (PoC 기본값)
+    if float(st.session_state.get("sim_crp", 0) or 0) >= 5.0:
+        detected_factors.append("CRP 상승")
+
+    if st.session_state.sim_sbp < 100:
+        detected_factors.append("저혈압(SBP<100)")
+    elif st.session_state.sim_sbp >= 180:
+        detected_factors.append("고혈압(SBP≥180)")
+
+    if st.session_state.sim_pr > 100:
+        detected_factors.append("빈맥(PR>100)")
+
+    if st.session_state.sim_rr >= 24:
+        detected_factors.append("빈호흡(RR≥24)")
+
+    if st.session_state.sim_bt >= 37.8:
+        detected_factors.append("발열(BT≥37.8)")
+
+    # 3) 내원시 반응(의식) 기반: 반응 저하로 분류되는 옵션이면 태그
+    reaction = str(st.session_state.get("sim_reaction", "")).lower()
+    if any(k in reaction for k in ["verbal", "pain", "unresponsive", "drowsy", "stupor", "confus"]):
+        detected_factors.append("의식/반응 저하")
+
+    # 4) 중증도분류 기반: 4~5는 '중증도 높음'으로 태그
+    try:
+        sev = int(st.session_state.get("sim_severity", 0))
+        if sev >= 4:
+            detected_factors.append("중증도 높음(4~5)")
+    except Exception:
+        pass
+
+    # (선택) 약물 태그는 새 모델 입력 11개에 없으므로, PoC에서는 숨김 처리
+    # if st.session_state.get("sim_meds", ""):
+    #     detected_factors.append("고위험 약물")
+
     if st.button("🔍 상세 분석 및 중재 기록 열기", type="primary", use_container_width=True):
         show_risk_details(curr_pt_base['name'], detected_factors, fall_score)
-
 # [우측 메인 패널]
 with col_main:
     st.markdown(f"""
@@ -415,6 +480,14 @@ with col_main:
                 st.number_input("BT (체온)", step=0.1, format="%.1f", key="sim_bt")
                 
                 st.slider("Albumin (영양)", 1.0, 5.5, key="sim_alb")
+                st.number_input("CRP", min_value=0.0, max_value=200.0, step=0.1, format="%.1f", key="sim_crp")                sev_default = int(st.session_state.get('sim_severity', 3))
+                sev_default = 1 if sev_default < 1 else (5 if sev_default > 5 else sev_default)
+                st.selectbox("중증도분류", [1, 2, 3, 4, 5], index=sev_default-1, key="sim_severity")
+                # 내원시 반응 옵션은 schema에 정의된 값을 우선 사용
+                reaction_opts = (res.get('category_options', {}).get('내원시 반응', []) if res else [])
+                if not reaction_opts:
+                    reaction_opts = ["alert", "verbal response", "painful response"]
+                st.selectbox("내원시 반응", reaction_opts, index=0, key="sim_reaction")
                 st.selectbox("의식 상태", ["명료(Alert)", "기면(Drowsy)", "혼미(Stupor)"], key="sim_mental")
                 st.checkbox("💊 고위험 약물(수면제 등) 복용", key="sim_meds")
 
@@ -452,11 +525,11 @@ with col_main:
         st.text_area("추가 기록", height=100)
         st.button("저장")
 
-# [NEW] 알람 (알람 박스 + Confirm 버튼: 시각적으로 박스 내부처럼 보이게, 상태 리셋 없음)
-if fall_score >= 60 and not st.session_state.alarm_confirmed:
+# [NEW] 알람 (버튼을 HTML 안에 넣어서 내용물과 함께 움직이게 함)
+if res and (fall_score_raw >= float(res.get('cutoff_top20', 1.0))) and not st.session_state.alarm_confirmed:
+    # ✅ 알람 트리거: Top20(상위 20%) 기준
     factors_str = "<br>• ".join(detected_factors) if detected_factors else "복합적 요인"
-
-    # 알람 박스 (HTML)
+    
     st.markdown(f"""
     <div class="custom-alert-box">
         <div class="alert-title">🚨 낙상 고위험 감지! ({fall_score}점)</div>
@@ -470,15 +543,12 @@ if fall_score >= 60 and not st.session_state.alarm_confirmed:
     </div>
     """, unsafe_allow_html=True)
 
-    # ▶ 시각적으로 알람 박스 내부 버튼처럼 보이게 처리 (fixed 박스 아래에 붙이기)
-    st.markdown("<div style='margin-top:-8px'></div>", unsafe_allow_html=True)
-
+    # ✅ (수정) 링크 대신 Streamlit 버튼 사용: 클릭해도 상태가 리셋되지 않음
     if st.button("확인 (Confirm)", key="confirm_alarm_btn", use_container_width=True):
         confirm_alarm()
         st.rerun()
 
 st.markdown("---")
-
 legends = [("수술전","#e57373"), ("수술중","#ba68c8"), ("검사후","#7986cb"), ("퇴원","#81c784"), ("신규오더","#ffb74d")]
 html = '<div style="display:flex; gap:10px;">' + "".join([f'<span class="legend-item" style="background:{c}">{l}</span>' for l,c in legends]) + '</div>'
 st.markdown(html, unsafe_allow_html=True)

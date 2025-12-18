@@ -4,6 +4,7 @@ import datetime
 import time
 import joblib
 import numpy as np
+from textwrap import dedent
 import json
 import altair as alt
 
@@ -437,8 +438,8 @@ with col_sidebar:
     f_color = "#ff5252" if is_top20 else ("#ffca28" if fall_group == "중위험" else "#00e5ff")
     s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
 # 가로형 계기판
-    st.markdown(f"""
-    <div class="digital-monitor-container {alarm_class}">
+    st.markdown(dedent(f"""
+<div class="digital-monitor-container {alarm_class}">
         <div class="score-box">
             <div class="monitor-label">FALL RISK</div>
             <div class="digital-number" style="color: {f_color};">{fall_score}</div>
@@ -507,8 +508,8 @@ with col_sidebar:
         show_risk_details(curr_pt_base['name'], detected_factors, fall_score)
 # [우측 메인 패널]
 with col_main:
-    st.markdown(f"""
-    <div class="header-container">
+    st.markdown(dedent(f"""
+<div class="header-container">
         <div style="display:flex; align-items:center; justify-content:space-between;">
             <div style="display:flex; align-items:center;">
                 <span style="font-size:1.5em; font-weight:bold; color:white; margin-right:20px;">🏥 SNUH</span>

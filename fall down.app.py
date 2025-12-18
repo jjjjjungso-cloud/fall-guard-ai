@@ -144,8 +144,9 @@ def load_resources():
         scores_sorted = ref.get('train_scores_sorted', None)
         if scores_sorted is None:
             raise ValueError("train_score_ref.npz 안에 'train_scores_sorted'가 없습니다.")
-        scores_sorted = np.array(scores_sorted).astype(float)
 
+        scores_sorted = np.array(scores_sorted).astype(float)
+        resources['train_scores_sorted'] = scores_sorted
         cut20 = ref.get('cutoff_top20', None)
         cut40 = ref.get('cutoff_top40', None)
         resources['cutoff_top20'] = float(np.quantile(scores_sorted, 0.80)) if cut20 is None else float(cut20)
@@ -192,11 +193,52 @@ for key, val in defaults.items():
         st.session_state[key] = val
 
 PATIENTS_BASE = [
-    {"id": "12345678", "bed": "04-01", "name": "김수면", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
+    {"id": "12345678", "bed": "04-01", "name": "김수연", "gender": "M", "age": 78, "diag": "Pneumonia", "doc": "김뇌혈", "nurse": "이간호"},
     {"id": "87654321", "bed": "04-02", "name": "이영희", "gender": "F", "age": 65, "diag": "Stomach Cancer", "doc": "박위장", "nurse": "최간호"},
     {"id": "11223344", "bed": "05-01", "name": "박민수", "gender": "M", "age": 82, "diag": "Femur Fracture", "doc": "최정형", "nurse": "김간호"},
     {"id": "99887766", "bed": "05-02", "name": "정수진", "gender": "F", "age": 32, "diag": "Appendicitis", "doc": "이외과", "nurse": "박간호"},
 ]
+
+# ------------------------------------------------------------------
+# 예시 환자(4명) 시연용: 각 환자별 기본 시뮬레이션 값(저/중/고 위험군)
+# - 환자 선택 시 이 값으로 자동 세팅되고, 이후 실시간 입력(예: albumin) 변경으로
+#   저→중→고 위험군 변화를 시연할 수 있습니다.
+# ------------------------------------------------------------------
+PATIENT_SIM_PRESETS = {
+    # 저위험 A (정상)
+    "12345678": {  # 김수연
+        "sim_sbp": 120, "sim_dbp": 78, "sim_pr": 78, "sim_rr": 18,
+        "sim_bt": 36.6, "sim_alb": 4.1, "sim_crp": 0.3,
+        "sim_severity": 2, "sim_reaction": "alert",
+    },
+    # 저위험 B (고령)
+    "87654321": {  # 이영희
+        "sim_sbp": 130, "sim_dbp": 82, "sim_pr": 76, "sim_rr": 18,
+        "sim_bt": 36.7, "sim_alb": 3.8, "sim_crp": 0.8,
+        "sim_severity": 2, "sim_reaction": "alert",
+    },
+    # 중위험 (관찰군)
+    "11223344": {  # 박민수
+        "sim_sbp": 115, "sim_dbp": 75, "sim_pr": 88, "sim_rr": 20,
+        "sim_bt": 37.2, "sim_alb": 3.0, "sim_crp": 4.0,
+        "sim_severity": 3, "sim_reaction": "alert",
+    },
+    # 고위험 Top20 (알람)
+    "99887766": {  # 정수진
+        "sim_sbp": 110, "sim_dbp": 70, "sim_pr": 96, "sim_rr": 22,
+        "sim_bt": 37.6, "sim_alb": 2.6, "sim_crp": 6.0,
+        "sim_severity": 3, "sim_reaction": "verbal response",
+    },
+}
+
+def apply_patient_preset(patient_id: str):
+    preset = PATIENT_SIM_PRESETS.get(str(patient_id))
+    if not preset:
+        return
+    for k, v in preset.items():
+        st.session_state[k] = v
+    # 알람 확인 상태는 환자 전환 시 리셋(새 환자에서 알람이 떠야 자연스러움)
+    st.session_state.alarm_confirmed = False
 
     # --------------------------------------------------------------------------------
 # 6. 예측 및 보정 함수
@@ -361,6 +403,11 @@ with col_sidebar:
         st.rerun()
     
     curr_pt_base = PATIENTS_BASE[idx]
+
+    # 환자 전환 시: 해당 환자의 예시값으로 자동 세팅 (초기 데모용)
+    if st.session_state.get("active_patient_id") != curr_pt_base["id"]:
+        st.session_state["active_patient_id"] = curr_pt_base["id"]
+        apply_patient_preset(curr_pt_base["id"])
     
     st.markdown("---")
     
@@ -371,6 +418,15 @@ with col_sidebar:
     # Top20 기준으로 알람/색상 결정
     cutoff_top20 = float(res.get('cutoff_top20', 1.0)) if res else 1.0
     is_top20 = bool(res) and (fall_score_raw >= cutoff_top20)
+
+    # 학습 분포 기준: 현재 점수의 '상위 %' 계산 (데모에서 가장 직관적)
+    top_percent = None
+    if res and res.get("train_scores_sorted") is not None:
+        scores_sorted = res["train_scores_sorted"]
+        n = len(scores_sorted)
+        # percentile rank: 0~100
+        perc = (np.searchsorted(scores_sorted, fall_score_raw, side="right") / n) * 100.0 if n else 0.0
+        top_percent = max(0.0, min(100.0, 100.0 - perc))
 
     # 점수가 Top20 아래면 알람 확인 상태 리셋(다시 위험해지면 다시 뜨게)
     if not is_top20:
@@ -386,6 +442,9 @@ with col_sidebar:
         <div class="score-box">
             <div class="monitor-label">FALL RISK</div>
             <div class="digital-number" style="color: {f_color};">{fall_score}</div>
+            <div style="margin-top:6px; font-size:12px; color:#b0bec5;">
+                {f"상위 {top_percent:.1f}%" if top_percent is not None else ""}
+            </div>
         </div>
         <div class="divider-line"></div>
         <div class="score-box">
@@ -473,37 +532,13 @@ with col_main:
                 # [핵심] 위젯의 key를 session state와 1:1 매핑 -> 데이터 유지 및 즉시 반영
 
                 # ------------------------------
-                # 예시 환자 빠른 세팅 (저/중/고 위험군 데모용)
+                # 예시 재원환자 4명: 환자 선택 시 자동 세팅 + 원클릭 초기화
+                # - 김수연/이영희/박민수/정수진 각각 (저위험A/저위험B/중위험/고위험) 기본값
+                # - 이후 아래 실시간 입력에서 (예: albumin) 값을 바꾸면 위험군이 즉시 변하는 것을 시연 가능
                 # ------------------------------
-                EXAMPLE_CASES = {
-                    "저위험 A (정상)": {
-                        "sim_sbp": 120, "sim_dbp": 78, "sim_pr": 78, "sim_rr": 18,
-                        "sim_bt": 36.6, "sim_alb": 4.1, "sim_crp": 0.3,
-                        "sim_severity": 2, "sim_reaction": "alert",
-                    },
-                    "저위험 B (고령)": {
-                        "sim_sbp": 130, "sim_dbp": 82, "sim_pr": 76, "sim_rr": 18,
-                        "sim_bt": 36.7, "sim_alb": 3.8, "sim_crp": 0.8,
-                        "sim_severity": 2, "sim_reaction": "alert",
-                    },
-                    "중위험 (관찰군)": {
-                        "sim_sbp": 115, "sim_dbp": 75, "sim_pr": 88, "sim_rr": 20,
-                        "sim_bt": 37.2, "sim_alb": 3.0, "sim_crp": 4.0,
-                        "sim_severity": 3, "sim_reaction": "alert",
-                    },
-                    "고위험 Top20 (알람)": {
-                        "sim_sbp": 110, "sim_dbp": 70, "sim_pr": 96, "sim_rr": 22,
-                        "sim_bt": 37.6, "sim_alb": 2.6, "sim_crp": 6.0,
-                        "sim_severity": 3, "sim_reaction": "verbal",
-                    },
-                }
-
-                demo_case = st.selectbox("📌 예시 환자 빠른 세팅", list(EXAMPLE_CASES.keys()))
-                if st.button("예시 환자 값 적용", use_container_width=True):
-                    for k, v in EXAMPLE_CASES[demo_case].items():
-                        st.session_state[k] = v
-                    st.success(f"'{demo_case}' 값이 적용되었습니다.")
-                r1, r2 = st.columns(2)
+                if st.button("🔁 현재 환자 예시값으로 초기화", use_container_width=True):
+                    apply_patient_preset(curr_pt_base["id"])
+                    st.success("예시값으로 초기화했습니다. 아래 입력을 조정해 위험군 변화를 시연해보세요!") 
                 st.number_input("SBP (수축기)", step=10, key="sim_sbp")
                 st.number_input("DBP (이완기)", step=10, key="sim_dbp")
                 r3, r4 = st.columns(2)

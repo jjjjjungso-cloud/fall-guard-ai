@@ -4,7 +4,6 @@ import datetime
 import time
 import joblib
 import numpy as np
-from textwrap import dedent
 import json
 import altair as alt
 
@@ -438,22 +437,22 @@ with col_sidebar:
     f_color = "#ff5252" if is_top20 else ("#ffca28" if fall_group == "중위험" else "#00e5ff")
     s_color = "#ff5252" if sore_score >= 18 else ("#ffca28" if sore_score >= 15 else "#00e5ff")
 # 가로형 계기판
-    st.markdown(dedent(f"""
-<div class="digital-monitor-container {alarm_class}">
-        <div class="score-box">
-            <div class="monitor-label">FALL RISK</div>
-            <div class="digital-number" style="color: {f_color};">{fall_score}</div>
-            <div style="margin-top:6px; font-size:12px; color:#b0bec5;">
-                {f"상위 {top_percent:.1f}%" if top_percent is not None else ""}
-            </div>
+    percent_text = f"상위 {top_percent:.1f}%" if top_percent is not None else ""
+    digital_monitor_html = f"""
+    <div class=\"digital-monitor-container {alarm_class}\">
+        <div class=\"score-box\">
+            <div class=\"monitor-label\">FALL RISK</div>
+            <div class=\"digital-number\" style=\"color: {f_color};\">{fall_score}</div>
+            <div style=\"margin-top:6px; font-size:12px; color:#b0bec5;\">{percent_text}</div>
         </div>
-        <div class="divider-line"></div>
-        <div class="score-box">
-            <div class="monitor-label">SORE RISK</div>
-            <div class="digital-number" style="color: {s_color};">{sore_score}</div>
+        <div class=\"divider-line\"></div>
+        <div class=\"score-box\">
+            <div class=\"monitor-label\">SORE RISK</div>
+            <div class=\"digital-number\" style=\"color: {s_color};\">{sore_score}</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(digital_monitor_html, unsafe_allow_html=True)
     
     # --------------------------------------------------------------------------------
     # (Flow 5 - A안) 감지된 위험 요인: 규칙 기반 태그 유지 (모델과 독립)
@@ -508,19 +507,20 @@ with col_sidebar:
         show_risk_details(curr_pt_base['name'], detected_factors, fall_score)
 # [우측 메인 패널]
 with col_main:
-    st.markdown(dedent(f"""
-<div class="header-container">
-        <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div style="display:flex; align-items:center;">
-                <span style="font-size:1.5em; font-weight:bold; color:white; margin-right:20px;">🏥 SNUH</span>
-                <span class="header-info-text"><span class="header-label">환자명:</span> <b>{curr_pt_base['name']}</b> ({curr_pt_base['gender']}/{curr_pt_base['age']}세)</span>
-                <span class="header-info-text"><span class="header-label">ID:</span> {curr_pt_base['id']}</span>
-                <span class="header-info-text"><span class="header-label">진단명:</span> <span style="color:#4fc3f7;">{curr_pt_base['diag']}</span></span>
+    header_html = f"""
+    <div class=\"header-container\">
+        <div style=\"display:flex; align-items:center; justify-content:space-between;\">
+            <div style=\"display:flex; align-items:center;\">
+                <span style=\"font-size:1.5em; font-weight:bold; color:white; margin-right:20px;\">🏥 SNUH</span>
+                <span class=\"header-info-text\"><span class=\"header-label\">환자명:</span> <b>{curr_pt_base['name']}</b> ({curr_pt_base['gender']}/{curr_pt_base['age']}세)</span>
+                <span class=\"header-info-text\"><span class=\"header-label\">ID:</span> {curr_pt_base['id']}</span>
+                <span class=\"header-info-text\"><span class=\"header-label\">진단명:</span> <span style=\"color:#4fc3f7;\">{curr_pt_base['diag']}</span></span>
             </div>
-            <div style="color:#b0bec5; font-size:0.9em;">김분당 간호사 | {datetime.datetime.now().strftime('%Y-%m-%d')}</div>
+            <div style=\"color:#b0bec5; font-size:0.9em;\">김분당 간호사 | {datetime.datetime.now().strftime('%Y-%m-%d')}</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(header_html, unsafe_allow_html=True)
 
     tab1, tab2, tab3 = st.tabs(["🛡️ 통합뷰 (AI Simulation)", "💊 오더", "📝 간호기록(Auto-Note)"])
 

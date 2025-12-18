@@ -479,11 +479,12 @@ with col_main:
                 st.number_input("RR (호흡)", step=2, key="sim_rr")
                 st.number_input("BT (체온)", step=0.1, format="%.1f", key="sim_bt")
                 
-                st.slider("Albumin (영양)", 1.0, 5.5, key="sim_alb")
-                st.number_input("CRP", min_value=0.0, max_value=200.0, step=0.1, format="%.1f", key="sim_crp")                sev_default = int(st.session_state.get('sim_severity', 3))
+                st.slider("Albumin (영양)", 1.0, 5.5, value=float(st.session_state.get("sim_alb", 4.0)), step=0.1, key="sim_alb")
+                st.number_input("CRP", min_value=0.0, max_value=200.0, value=float(st.session_state.get("sim_crp", 0.2)), step=0.1, format="%.1f", key="sim_crp")
+                sev_default = int(st.session_state.get("sim_severity", 3))
                 sev_default = 1 if sev_default < 1 else (5 if sev_default > 5 else sev_default)
                 st.selectbox("중증도분류", [1, 2, 3, 4, 5], index=sev_default-1, key="sim_severity")
-                # 내원시 반응 옵션은 schema에 정의된 값을 우선 사용
+# 내원시 반응 옵션은 schema에 정의된 값을 우선 사용
                 reaction_opts = (res.get('category_options', {}).get('내원시 반응', []) if res else [])
                 if not reaction_opts:
                     reaction_opts = ["alert", "verbal response", "painful response"]
